@@ -7,7 +7,7 @@ class JM extends ComicSource {
     // unique id of the source
     key = "jm"
 
-    version = "1.4.0"
+    version = "1.4.1"
 
     minAppVersion = "1.5.0"
 
@@ -16,7 +16,7 @@ class JM extends ComicSource {
     static jmPkgName = "com.example.app"
 
     // update url
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/jm.js"
+    url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/jm.js"
 
     dailyCheckInInProgress = false
 
@@ -203,17 +203,17 @@ class JM extends ComicSource {
      * @returns {Comic}
      */
     parseComic(comic) {
-        let id = comic.id.toString()
-        let author = comic.author
-        let title = comic.name
-        let description = comic.description ?? ""
+        let id = comic?.id?.toString() ?? ""
+        let author = comic?.author ?? ""
+        let title = comic?.name ?? ""
+        let description = comic?.description ?? ""
         let cover = this.getCoverUrl(id)
-        let tags =[]
-        if(comic["category"]["title"]) {
-            tags.push(comic["category"]["title"])
+        let tags = []
+        if(comic?.category?.title) {
+            tags.push(comic.category.title)
         }
-        if(comic["category_sub"]["title"]) {
-            tags.push(comic["category_sub"]["title"])
+        if(comic?.category_sub?.title) {
+            tags.push(comic.category_sub.title)
         }
         return new Comic({
             id: id,
@@ -764,21 +764,26 @@ class JM extends ComicSource {
          * @returns {Promise<ComicDetails>}
          */
         loadInfo: async (id) => {
+            id = id?.toString() ?? ""
             if (id.startsWith('jm')) {
                 id = id.substring(2)
             }
+            if (!id) {
+                throw 'Invalid comic id'
+            }
             let res = await this.get(`${this.baseUrl}/album?id=${id}`);
-            let data = JSON.parse(res)
-            let author = data.author ?? []
-            let works = data.works ?? []
-            let actors = data.actors ?? []
+            let data = JSON.parse(res) ?? {}
+            let author = Array.isArray(data.author) ? data.author : (data.author ? [data.author] : [])
+            let works = Array.isArray(data.works) ? data.works : (data.works ? [data.works] : [])
+            let actors = Array.isArray(data.actors) ? data.actors : (data.actors ? [data.actors] : [])
             let chapters = new Map()
-            let series = (data.series ?? []).sort((a, b) => a.sort - b.sort)
+            let series = Array.isArray(data.series) ? [...data.series] : []
+            series.sort((a, b) => Number(a?.sort ?? 0) - Number(b?.sort ?? 0))
             for(let e of series) {
-                let title = e.name ?? ''
-                title = title.trim()
+                if (e?.id == null) continue
+                let title = (e.name ?? '').toString().trim()
                 if(title.length === 0) {
-                    title = `第${e["sort"]}話`
+                    title = `第${e.sort ?? ''}話`
                 }
                 let id = e.id.toString()
                 chapters.set(id, title)
@@ -786,17 +791,25 @@ class JM extends ComicSource {
             if(chapters.size === 0) {
                 chapters.set(id, '第1話')
             }
-            let tags = data.tags ?? []
-            let related = data["related_list"].map((e) => new Comic({
+            let tags = Array.isArray(data.tags) ? data.tags : (data.tags ? [data.tags] : [])
+            let relatedList = Array.isArray(data.related_list) ? data.related_list : []
+            let related = relatedList.filter((e) => e?.id != null).map((e) => new Comic({
                 id: e.id.toString(),
-                title: e.name,
+                title: e.name ?? "",
                 subtitle: e.author ?? "",
                 cover: this.getCoverUrl(e.id),
                 description: e.description ?? ""
             }))
-            let updateTimeStamp = data["addtime"];
-            let date = new Date(updateTimeStamp * 1000)
-            let updateDate = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+            let updateDate = ""
+            if (data.addtime != null && data.addtime !== "") {
+                let updateTimeStamp = Number(data.addtime)
+                let date = Number.isFinite(updateTimeStamp)
+                    ? new Date(updateTimeStamp < 1000000000000 ? updateTimeStamp * 1000 : updateTimeStamp)
+                    : new Date(data.addtime)
+                if (!Number.isNaN(date.getTime())) {
+                    updateDate = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+                }
+            }
 
             return new ComicDetails({
                 title: data.name,
@@ -824,9 +837,19 @@ class JM extends ComicSource {
          * @returns {Promise<{images: string[]}>}
          */
         loadEp: async (comicId, epId) => {
-            let res = await this.get(`${this.baseUrl}/chapter?id=${epId}`);
-            let data = JSON.parse(res)
-            let images = data.images.map((e) => this.getImageUrl(epId, e))
+            let chapterId = epId?.toString().trim()
+            if (!chapterId) {
+                chapterId = comicId?.toString().replace(/^jm/, '') ?? ""
+            }
+            if (!chapterId) {
+                throw 'Invalid chapter id'
+            }
+            let res = await this.get(`${this.baseUrl}/chapter?id=${chapterId}`);
+            let data = JSON.parse(res) ?? {}
+            let imageList = Array.isArray(data.images) ? data.images : (data.images ? [data.images] : [])
+            let images = imageList
+                .filter((e) => e != null && e.toString().length > 0)
+                .map((e) => this.getImageUrl(chapterId, e.toString()))
             return {
                 images: images
             }
