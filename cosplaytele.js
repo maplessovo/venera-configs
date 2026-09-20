@@ -5,7 +5,7 @@ class CosplayTele extends ComicSource {
 
     key = "cosplaytele"
 
-    version = "1.0.2"
+    version = "1.0.3"
 
     minAppVersion = "1.4.6"
 
@@ -323,11 +323,64 @@ class CosplayTele extends ComicSource {
         }
     }
 
+    _categoryTarget(category, param) {
+        return {
+            page: "category",
+            attributes: { category: category, param: param },
+        }
+    }
+
+    async _loadTopSearchExplore() {
+        let term = (await this._loadTopSearchTerms(10))[0]
+        if (!term) throw "Top Search terms not found"
+        let result = await this._loadFilteredPosts(term.value, 1)
+        return [{
+            title: term.label,
+            comics: result.comics.slice(0, 12),
+            viewMore: this._categoryTarget("Top Search", "top-search"),
+        }]
+    }
+
+    async _loadLevelExplore() {
+        let level = (await this._loadLevelOptions())[0]
+        if (!level) throw "Level Cosplay categories not found"
+        let result = await this._loadFilteredPosts(level.value, 1)
+        return [{
+            title: level.label,
+            comics: result.comics.slice(0, 12),
+            viewMore: this._categoryTarget("Level Cosplay", "level-cosplay"),
+        }]
+    }
+
+    async _loadTopCosplayExplore() {
+        let result = await this._loadTopCosplayRanking("24h")
+        return [{
+            title: "24 hours",
+            comics: result.comics.slice(0, 12),
+            viewMore: this._categoryTarget("Top Cosplay", "top-cosplay"),
+        }]
+    }
+
     explore = [
         {
             title: "CosplayTele",
             type: "multiPageComicList",
             load: async (page) => this._loadPosts({}, page),
+        },
+        {
+            title: "Top Search",
+            type: "multiPartPage",
+            load: async () => this._loadTopSearchExplore(),
+        },
+        {
+            title: "Level Cosplay",
+            type: "multiPartPage",
+            load: async () => this._loadLevelExplore(),
+        },
+        {
+            title: "Top Cosplay",
+            type: "multiPartPage",
+            load: async () => this._loadTopCosplayExplore(),
         }
     ]
 
