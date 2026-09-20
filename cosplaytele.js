@@ -5,7 +5,7 @@ class CosplayTele extends ComicSource {
 
     key = "cosplaytele"
 
-    version = "1.0.1"
+    version = "1.0.2"
 
     minAppVersion = "1.4.6"
 
@@ -201,16 +201,25 @@ class CosplayTele extends ComicSource {
                 let container = heading.parent
                 let categories = []
                 let tags = []
+                let terms = []
                 for (let link of container?.querySelectorAll("a[href]") ?? []) {
                     let href = link.attributes?.["href"] ?? ""
                     let match = href.match(/\/(category|tag)\/([^/?#]+)\/?/i)
                     if (!match) continue
                     let slug = decodeURIComponent(match[2])
-                    let list = match[1].toLowerCase() === "category" ? categories : tags
+                    let taxonomy = match[1].toLowerCase()
+                    let list = taxonomy === "category" ? categories : tags
                     if (!list.includes(slug)) list.push(slug)
+                    if (!terms.some((term) => term.taxonomy === taxonomy && term.slug === slug)) {
+                        terms.push({
+                            taxonomy: taxonomy,
+                            slug: slug,
+                            label: link.text?.trim() || slug.replaceAll("-", " "),
+                        })
+                    }
                 }
                 if (categories.length > 0 || tags.length > 0) {
-                    groups.push({ title, categories, tags })
+                    groups.push({ title, categories, tags, terms })
                 }
             }
         } finally {
@@ -233,7 +242,7 @@ class CosplayTele extends ComicSource {
         return map
     }
 
-    async _loadTopSearch() {
+    async _loadTopSearchTerms(limit = 10) {
         let pageResult = await this._request("pages", {
             slug: "top-search",
             per_page: 1,
@@ -241,58 +250,44 @@ class CosplayTele extends ComicSource {
         })
         let page = Array.isArray(pageResult.data) ? pageResult.data[0] : null
         let groups = this._extractTopSearchGroups(page?.content?.rendered)
-        if (groups.length === 0) throw "Top Search groups not found"
+        let topSearch = groups.find((group) => group.title === "Top Search")
+        if (!topSearch || topSearch.terms.length === 0) throw "Top Search terms not found"
 
-        let categorySlugs = [...new Set(groups.flatMap((group) => group.categories))]
-        let tagSlugs = [...new Set(groups.flatMap((group) => group.tags))]
+        let terms = topSearch.terms.slice(0, limit)
+        let categorySlugs = terms.filter((term) => term.taxonomy === "category").map((term) => term.slug)
+        let tagSlugs = terms.filter((term) => term.taxonomy === "tag").map((term) => term.slug)
         let [categoryMap, tagMap] = await Promise.all([
             this._resolveTerms("categories", categorySlugs),
             this._resolveTerms("tags", tagSlugs),
         ])
 
-        return Promise.all(groups.map(async (group) => {
-            let categoryIds = group.categories.map((slug) => categoryMap.get(slug)).filter(Boolean)
-            let tagIds = group.tags.map((slug) => tagMap.get(slug)).filter(Boolean)
-            let loaders = []
-            if (categoryIds.length > 0) {
-                loaders.push(this._loadPosts({ categories: categoryIds.join(",") }, 1, 8))
+        return terms.map((term) => {
+            let id = term.taxonomy === "category" ? categoryMap.get(term.slug) : tagMap.get(term.slug)
+            if (!id) return null
+            return {
+                value: `${term.taxonomy === "category" ? "c" : "t"}${id}`,
+                label: term.label,
             }
-            if (tagIds.length > 0) {
-                loaders.push(this._loadPosts({ tags: tagIds.join(",") }, 1, 8))
-            }
-
-            let results = await Promise.all(loaders)
-            let comics = []
-            let seen = new Set()
-            for (let result of results) {
-                for (let comic of result.comics) {
-                    if (seen.has(comic.id)) continue
-                    seen.add(comic.id)
-                    comics.push(comic)
-                }
-            }
-            return { title: group.title, comics: comics.slice(0, 12) }
-        }))
+        }).filter(Boolean)
     }
 
-    async _loadLevelCosplay() {
+    async _loadLevelOptions() {
         let definitions = [
-            { title: "Cosplay Nude", slug: "cosplay-nude" },
-            { title: "Cosplay Ero", slug: "cosplay-ero" },
-            { title: "Cosplay", slug: "cosplay" },
+            { label: "Nude", slug: "cosplay-nude" },
+            { label: "Ero", slug: "cosplay-ero" },
+            { label: "Cosplay", slug: "cosplay" },
         ]
         let categoryMap = await this._resolveTerms("categories", definitions.map((item) => item.slug))
-
-        return Promise.all(definitions.map(async (item) => {
+        return definitions.map((item) => {
             let id = categoryMap.get(item.slug)
-            if (!id) return { title: item.title, comics: [] }
-            let result = await this._loadPosts({ categories: id }, 1, 12)
-            return {
-                title: item.title,
-                comics: result.comics,
-                viewMore: `category:${item.title}@${id}`,
-            }
-        }))
+            return id ? { value: `c${id}`, label: item.label } : null
+        }).filter(Boolean)
+    }
+
+    async _loadFilteredPosts(filter, page) {
+        let match = filter?.toString().match(/^([ct])(\d+)$/)
+        if (!match) throw "Invalid CosplayTele filter"
+        return this._loadPosts({ [match[1] === "c" ? "categories" : "tags"]: match[2] }, page)
     }
 
     async _loadPopularPosts(range, timeQuantity = null, timeUnit = null) {
@@ -315,17 +310,17 @@ class CosplayTele extends ComicSource {
         return (Array.isArray(posts) ? posts : []).map((post) => this._parsePost(post))
     }
 
-    async _loadTopCosplay() {
-        let [daily, threeDays, sevenDays] = await Promise.all([
-            this._loadPopularPosts("custom", 24, "hour"),
-            this._loadPopularPosts("custom", 3, "day"),
-            this._loadPopularPosts("last7days"),
-        ])
-        return [
-            { title: "24 hours", comics: daily },
-            { title: "3 day", comics: threeDays },
-            { title: "7 Day", comics: sevenDays },
-        ]
+    async _loadTopCosplayRanking(period) {
+        let definitions = {
+            "24h": ["custom", 24, "hour"],
+            "3d": ["custom", 3, "day"],
+            "7d": ["last7days", null, null],
+        }
+        let selected = definitions[period] ?? definitions["24h"]
+        return {
+            comics: await this._loadPopularPosts(selected[0], selected[1], selected[2]),
+            maxPage: 1,
+        }
     }
 
     explore = [
@@ -333,27 +328,39 @@ class CosplayTele extends ComicSource {
             title: "CosplayTele",
             type: "multiPageComicList",
             load: async (page) => this._loadPosts({}, page),
-        },
-        {
-            title: "Top Search",
-            type: "multiPartPage",
-            load: async () => this._loadTopSearch(),
-        },
-        {
-            title: "Level Cosplay",
-            type: "multiPartPage",
-            load: async () => this._loadLevelCosplay(),
-        },
-        {
-            title: "Top Cosplay",
-            type: "multiPartPage",
-            load: async () => this._loadTopCosplay(),
         }
     ]
 
     category = {
         title: "CosplayTele",
         parts: [
+            {
+                name: "Featured",
+                type: "fixed",
+                categories: [
+                    {
+                        label: "Top Search",
+                        target: {
+                            page: "category",
+                            attributes: { category: "Top Search", param: "top-search" },
+                        },
+                    },
+                    {
+                        label: "Level Cosplay",
+                        target: {
+                            page: "category",
+                            attributes: { category: "Level Cosplay", param: "level-cosplay" },
+                        },
+                    },
+                    {
+                        label: "Top Cosplay",
+                        target: {
+                            page: "category",
+                            attributes: { category: "Top Cosplay", param: "top-cosplay" },
+                        },
+                    },
+                ],
+            },
             {
                 name: "Categories",
                 type: "dynamic",
@@ -385,10 +392,44 @@ class CosplayTele extends ComicSource {
 
     categoryComics = {
         load: async (category, param, options, page) => {
+            let selected = Array.isArray(options) ? options[0] : null
+            if (param === "top-search") {
+                if (!selected) selected = (await this._loadTopSearchTerms(10))[0]?.value
+                return this._loadFilteredPosts(selected, page)
+            }
+            if (param === "level-cosplay") {
+                if (!selected) selected = (await this._loadLevelOptions())[0]?.value
+                return this._loadFilteredPosts(selected, page)
+            }
+            if (param === "top-cosplay") {
+                return this._loadTopCosplayRanking(selected ?? "24h")
+            }
             if (!param) throw "Invalid category id"
             return this._loadPosts({ categories: param }, page)
         },
-        optionList: [],
+        optionLoader: async (category, param) => {
+            if (param === "top-search") {
+                let terms = await this._loadTopSearchTerms(10)
+                return [{
+                    label: "Hot Keyword",
+                    options: terms.map((term) => `${term.value}-${term.label}`),
+                }]
+            }
+            if (param === "level-cosplay") {
+                let levels = await this._loadLevelOptions()
+                return [{
+                    label: "Level",
+                    options: levels.map((level) => `${level.value}-${level.label}`),
+                }]
+            }
+            if (param === "top-cosplay") {
+                return [{
+                    label: "Period",
+                    options: ["24h-24 hours", "3d-3 days", "7d-7 days"],
+                }]
+            }
+            return []
+        },
     }
 
     search = {
@@ -468,13 +509,27 @@ class CosplayTele extends ComicSource {
 
     translation = {
         "zh_CN": {
+            "Featured": "精选",
             "Categories": "分类",
+            "Hot Keyword": "热门词",
+            "Level": "等级",
+            "Period": "排行周期",
+            "24 hours": "24 小时",
+            "3 days": "3 天",
+            "7 days": "7 天",
             "Category": "分类",
             "Tag": "标签",
             "Photo Gallery": "图片集",
         },
         "zh_TW": {
+            "Featured": "精選",
             "Categories": "分類",
+            "Hot Keyword": "熱門詞",
+            "Level": "等級",
+            "Period": "排行週期",
+            "24 hours": "24 小時",
+            "3 days": "3 天",
+            "7 days": "7 天",
             "Category": "分類",
             "Tag": "標籤",
             "Photo Gallery": "圖片集",

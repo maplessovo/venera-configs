@@ -212,7 +212,7 @@
         "name": "CosplayTele",
         "fileName": "cosplaytele.js",
         "key": "cosplaytele",
-        "version": "1.0.1",
-        "description": "CosplayTele 图片集源，支持最新、Top Search、Level Cosplay、Top Cosplay、搜索和分类浏览"
+        "version": "1.0.2",
+        "description": "CosplayTele 图片集源，支持最新、Top Search 热词筛选、Level Cosplay 分级筛选、Top Cosplay 时段排行、搜索和分类浏览"
     }
 ]
