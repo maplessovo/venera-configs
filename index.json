@@ -21,7 +21,7 @@
         "name": "包子漫画",
         "fileName": "baozi.js",
         "key": "baozi",
-        "version": "1.1.6"
+        "version": "1.1.7"
     },
     {
         "name": "Picacg",
@@ -46,7 +46,7 @@
         "name": "ehentai",
         "fileName": "ehentai.js",
         "key": "ehentai",
-        "version": "1.1.8"
+        "version": "1.2.0"
     },
     {
         "name": "zero搬运网",
@@ -114,13 +114,13 @@
         "name": "漫蛙吧",
         "fileName": "manwaba.js",
         "key": "manwaba",
-        "version": "1.0.2"
+        "version": "1.0.3"
     },
     {
         "name": "Lanraragi",
         "fileName": "lanraragi.js",
         "key": "lanraragi",
-        "version": "1.1.0"
+        "version": "1.2.0"
     },
     {
         "name": "Komga",

@@ -5,12 +5,12 @@ class Baozi extends ComicSource {
   // 唯一标识符
   key = "baozi";
 
-  version = "1.1.6";
+  version = "1.1.7";
 
   minAppVersion = "1.0.0";
 
   // 更新链接
-  url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/baozi.js";
+  url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/baozi.js";
 
   settings = {
     language: {
@@ -33,7 +33,7 @@ class Baozi extends ComicSource {
         { value: "twmanga.com" },
         { value: "dinnerku.com" },
       ],
-      default: "bzmgcn.com",
+      default: "webmota.com",
     },
     cdn_domains: {
       title: "图片资源站域名",
@@ -71,6 +71,8 @@ class Baozi extends ComicSource {
   }
   get baseUrl() {
     let domain = this.loadSetting("domains") || this.settings.domains.default;
+    // The former default may still be stored for existing installations.
+    if (domain === "bzmgcn.com") domain = "webmota.com";
     return `https://${this.lang}.${domain}`;
   }
 
