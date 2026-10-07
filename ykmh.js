@@ -2,12 +2,26 @@
 class YKMHSource extends ComicSource {
     name = "优酷漫画"
     key = "ykmh"
-    version = "1.0.0"
+    version = "1.0.1"
     minAppVersion = "1.4.0"
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/ykmh.js"
+    url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/ykmh.js"
 
     get baseUrl() {
         return "https://www.ykmh.net";
+    }
+
+    async _loadImageHost() {
+        if (this._imageHost) return this._imageHost;
+        const res = await Network.get("https://m.ykmh.net/js/config.js", {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+            'Referer': 'https://m.ykmh.net/',
+        });
+        if (res.status !== 200) throw `图片服务器配置加载失败：HTTP ${res.status}`;
+        const match = res.body.match(/resHost:\s*(\[[\s\S]*?\])\s*,\s*scheduler/);
+        const host = match ? JSON.parse(match[1])[0]?.domain?.[0] : null;
+        if (typeof host !== 'string' || !/^https?:\/\//.test(host)) throw "未找到图片服务器配置";
+        this._imageHost = host.replace(/\/+$/, '');
+        return this._imageHost;
     }
 
     explore = [
@@ -455,9 +469,8 @@ class YKMHSource extends ComicSource {
             }
 
             let res = await Network.get(targetUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36 Edg/139.0.0.0'
-                }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+                'Referer': `${this.baseUrl}/`,
             });
             if (res.status !== 200) {
                 throw `请求失败，状态码: ${res.status}，URL: ${targetUrl}`;
@@ -795,9 +808,8 @@ class YKMHSource extends ComicSource {
                 chapterUrl = chapterUrl.replace('https://www.ykmh.net/', 'https://m.ykmh.net/');
             }
             let res = await Network.get(chapterUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
-                }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+                'Referer': comicId.replace('https://www.ykmh.net/', 'https://m.ykmh.net/'),
             });
             if (res.status !== 200) {
                 throw `请求章节失败，状态码: ${res.status}`;
@@ -858,6 +870,10 @@ class YKMHSource extends ComicSource {
 
             try {
                 let images = parseChapterImages(res.body);
+                if (images.some(image => image.startsWith('https://m.ykmh.net/images/comic/'))) {
+                    const imageHost = await this._loadImageHost();
+                    images = images.map(image => image.replace(/^https:\/\/m\.ykmh\.net(?=\/images\/comic\/)/, imageHost));
+                }
                 if (images.length === 0) {
                     console.warn("未找到章节图片，可能需要进一步的页面解析");
                 }

@@ -5,7 +5,7 @@ class Baozi extends ComicSource {
   // 唯一标识符
   key = "baozi";
 
-  version = "1.1.7";
+  version = "1.1.8";
 
   minAppVersion = "1.0.0";
 
@@ -430,28 +430,31 @@ class Baozi extends ComicSource {
         .querySelector("p.comics-detail__desc")
         .text.trim();
       let chapters = new Map();
-      let i = 0;
-      for (let c of document.querySelectorAll(
-        "div#chapter-items > div.comics-chapters > a > div > span"
-      )) {
-        chapters.set(i.toString(), c.text.trim());
-        i++;
-      }
-      for (let c of document.querySelectorAll(
-        "div#chapters_other_list > div.comics-chapters > a > div > span"
-      )) {
-        chapters.set(i.toString(), c.text.trim());
-        i++;
-      }
-      if (i === 0) {
-        // 将倒序的最新章节反转
-        const spans = Array.from(
-          document.querySelectorAll("div.comics-chapters > a > div > span")
-        ).reverse();
-        for (let c of spans) {
-          chapters.set(i.toString(), c.text.trim());
-          i++;
+      const addChapter = (link) => {
+        const href = link.attributes["href"] || "";
+        const section = href.match(/[?&]section_slot=(\d+)/);
+        const chapter = href.match(/[?&]chapter_slot=(\d+)/);
+        const title = link.querySelector("div > span")?.text.trim();
+        if (chapter && title) {
+          chapters.set(`${section ? section[1] : "0"}_${chapter[1]}`, title);
         }
+      };
+      for (let c of document.querySelectorAll(
+        "div#chapter-items > div.comics-chapters > a"
+      )) {
+        addChapter(c);
+      }
+      for (let c of document.querySelectorAll(
+        "div#chapters_other_list > div.comics-chapters > a"
+      )) {
+        addChapter(c);
+      }
+      if (chapters.size === 0) {
+        // 将倒序的最新章节反转
+        const links = Array.from(
+          document.querySelectorAll("div.comics-chapters > a")
+        ).reverse();
+        links.forEach(addChapter);
       }
       let recommend = [];
       for (let c of document.querySelectorAll("div.recommend--item")) {
@@ -489,8 +492,11 @@ class Baozi extends ComicSource {
     loadEp: async (comicId, epId) => {
       const images = [];
 
-      // App版链接
-      let currentPageUrl = `https://appcn.baozimh.com/baozimhapp/comic/chapter/${comicId}/0_${epId}.html`;
+      // Follow the current site's official reader redirect instead of the
+      // retired appcn endpoint. Old numeric chapter IDs still mean section 0.
+      const chapter = String(epId).match(/^(?:(\d+)_)?(\d+)$/);
+      if (!chapter) throw "无效的章节 ID";
+      const currentPageUrl = `${this.baseUrl}/user/page_direct?comic_id=${encodeURIComponent(comicId)}&section_slot=${chapter[1] || "0"}&chapter_slot=${chapter[2]}`;
 
       const res = await Network.get(currentPageUrl);
       if (res.status !== 200) {
@@ -499,20 +505,24 @@ class Baozi extends ComicSource {
 
       const doc = new HtmlDocument(res.body);
 
-      // 解析当前页图片(App 版)
-      const imageNodes = doc.querySelectorAll(".comic-contain > .chapter-img");
-      imageNodes.forEach((imgNode) => {
-        let imgUrl = imgNode.querySelector(".comic-contain__item")?.attributes?.["data-src"];
-        if (imgUrl) {
-          const match = imgUrl.match(/^(https?:\/\/)?([^/\s:]+)(:\d+)?(\/[a-z]comic\/.*)/);
-          if (match) {
-            const domain = this.loadSetting("cdn_domains") === "" ? match[2] : this.loadSetting("cdn_domains");
-            imgUrl = `${match[1]}${domain}${this.loadSetting("image_quality")}${match[4]}`;
+      try {
+        const imageNodes = doc.querySelectorAll(".comic-contain .comic-contain__item");
+        imageNodes.forEach((imgNode) => {
+          let imgUrl = imgNode.attributes["data-src"] || imgNode.attributes["src"];
+          if (imgUrl) {
+            const match = imgUrl.match(/^(https?:\/\/)?([^/\s:]+)(:\d+)?(\/[a-z]comic\/.*)/);
+            if (match) {
+              const domain = this.loadSetting("cdn_domains") === "" ? match[2] : this.loadSetting("cdn_domains");
+              imgUrl = `${match[1] || "https://"}${domain}${this.loadSetting("image_quality")}${match[4]}`;
+            }
+            images.push(imgUrl);
           }
-          images.push(imgUrl);
-        }
-      });
-      return { images: images };
+        });
+        if (images.length === 0) throw "未找到章节图片，站点页面结构可能已经更新";
+        return { images: images };
+      } finally {
+        doc.dispose();
+      }
     },
   };
 }

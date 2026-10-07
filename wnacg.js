@@ -7,12 +7,12 @@ class Wnacg extends ComicSource {
     // unique id of the source
     key = "wnacg"
 
-    version = "1.0.5"
+    version = "1.0.6"
 
     minAppVersion = "1.0.0"
 
     // update url
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/wnacg.js"
+    url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/wnacg.js"
 
     static domains = [];
 
@@ -27,7 +27,10 @@ class Wnacg extends ComicSource {
             if (!domain0 || domain0.trim() === '') {
                 throw 'Custom domain is not set'
             }
-            return `https://${domain0.trim()}`
+            domain0 = domain0.trim()
+            // Migrate the previous default to the current mirror published by wn01.link.
+            if (domain0 === 'wnacg.com' || domain0 === 'www.wnacg.com') domain0 = 'www.wn001.cfd'
+            return `https://${domain0}`
         } else {
             // 选择获取的域名 (Domain 1-3)
             let index = selection - 1
@@ -40,6 +43,13 @@ class Wnacg extends ComicSource {
 
     overwriteDomains(domains) {
         if (domains.length != 0) Wnacg.domains = domains
+    }
+
+    get imageHeaders() {
+        return {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
+            "Referer": `${this.baseUrl}/`,
+        }
     }
 
     // [Optional] account related
@@ -114,6 +124,7 @@ class Wnacg extends ComicSource {
                         if (domain &&
                             domain.includes(".") &&
                             !domain.includes("wn01.link") &&
+                            !/^wnacg\d+\.link$/i.test(domain) &&
                             !domain.includes("google.cn") &&
                             !domain.includes("cdn-cgi") &&
                             !seenDomains.has(domain)) {
@@ -656,6 +667,16 @@ class Wnacg extends ComicSource {
             let description = document.querySelector("div.asTBcell.uwconn > p").text;
             let uploader = document.querySelector("div.asTBcell.uwuinfo > a > p").text;
 
+            // Series pages link to individual albums using aid + sid.
+            const chapters = new Map()
+            for (const link of document.querySelectorAll('a[href*="photos-slide-aid-"][href*="-sid-"]')) {
+                const match = (link.attributes["href"] || "").match(/photos-slide-aid-(\d+)-sid-(\d+)/)
+                if (!match || match[2] !== String(id)) continue
+                const label = link.text.trim()
+                if (label || !chapters.has(match[1])) chapters.set(match[1], label || match[1])
+            }
+            document.dispose()
+
             return new ComicDetails({
                 id: id,
                 title: title,
@@ -664,6 +685,7 @@ class Wnacg extends ComicSource {
                 tags: tags,
                 description: description,
                 uploader: uploader,
+                chapters: chapters.size ? chapters : null,
             })
         },
         /**
@@ -699,7 +721,7 @@ class Wnacg extends ComicSource {
          * @returns {Promise<{images: string[]}>}
          */
         loadEp: async (comicId, epId) => {
-            let res = await Network.get(`${this.baseUrl}/photos-gallery-aid-${comicId}.html`, {})
+            let res = await Network.get(`${this.baseUrl}/photos-gallery-aid-${epId || comicId}.html`, {})
             if (res.status !== 200) {
                 throw `Invalid Status Code ${res.status}`
             }
@@ -709,6 +731,8 @@ class Wnacg extends ComicSource {
                 images: matches.map((e) => 'https:' + e[0].substring(0, e[0].length - 1))
             }
         },
+        onImageLoad: (url) => ({url, headers: this.imageHeaders}),
+        onThumbnailLoad: (url) => ({url, headers: this.imageHeaders}),
         /**
          * [Optional] Handle tag click event
          * @param namespace {string}
@@ -755,7 +779,7 @@ class Wnacg extends ComicSource {
                 title: "Custom Domain",
                 type: "input",
                 validator: String.raw`^(?!:\/\/)(?=.{1,253})([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`,
-                default: 'wnacg.com',
+                default: 'www.wn001.cfd',
             },
         }
     }

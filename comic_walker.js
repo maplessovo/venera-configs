@@ -1,10 +1,10 @@
 class ComicWalker extends ComicSource {
   name = "カドコミ";
   key = "comic_walker";
-  version = "1.0.1";
+  version = "1.0.2";
   minAppVersion = "1.6.0";
   url =
-    "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/comic_walker.js";
+    "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/comic_walker.js";
 
   api_key = "ytBrdQ2ZYdRQguqEusVLxQVUgakNnVht";
 
@@ -31,13 +31,17 @@ class ComicWalker extends ComicSource {
       `${this.api_base}/v1/users`,
       this.headers,
       "POST",
+      undefined,
+      false,
     );
 
-    this.saveData("token", res.resources.access_token);
-    return res.resources.access_token;
+    const token = res.resources?.access_token;
+    if (!token) throw new Error(`Anonymous authentication failed: ${res.code || "missing access token"}`);
+    this.saveData("token", token);
+    return token;
   }
 
-  async request(url, headers, method = "GET", data) {
+  async request(url, headers, method = "GET", data, allowRefresh = true) {
     let response;
     if (method === "GET") {
       response = await Network.get(url, headers);
@@ -53,9 +57,7 @@ class ComicWalker extends ComicSource {
     }
     response = JSON.parse(response.body);
     if (
-      response.code === "invalid_request_parameter" ||
-      response.code === "free_daily_reward_quota_exceeded" ||
-      response.code === "unauthorized"
+      allowRefresh && response.code === "unauthorized"
     ) {
       await this.refreshToken();
       if (method === "GET") {
@@ -82,7 +84,8 @@ class ComicWalker extends ComicSource {
 
     if (resp.status == 200) {
       const response = JSON.parse(resp.body);
-      this.latestVersion = response.version;
+      const latestVersion = response.results?.[0]?.version;
+      if (typeof latestVersion === "string" && latestVersion) this.latestVersion = latestVersion;
     }
 
     try {
@@ -344,9 +347,12 @@ class ComicWalker extends ComicSource {
         }
         onResponse;
       `;
+      // Image URLs use a CDN host, not the API's Host header.
+      const imageHeaders = {...this.headers};
+      delete imageHeaders.Host;
       return {
         url: cleanUrl,
-        headers: this.headers,
+        headers: imageHeaders,
         onResponse: async (buffer)  => {
           return await compute(onResponseScript, buffer);
         }

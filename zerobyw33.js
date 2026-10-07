@@ -3,16 +3,16 @@
 class ZeroByw33 extends ComicSource {
     name = "zero搬运网"
     key = "zerobyw33"
-    version = "1.0.2"
+    version = "1.0.3"
     minAppVersion = "1.6.0"
-    url = ""
+    url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/zerobyw33.js"
 
     get baseUrl() {
         let domain = this.loadSetting("domain") || "www.zerobyw33.com"
-        domain = String(domain).trim()
-            .replace(/^https?:\/\//i, "")
-            .replace(/\/+$/, "")
-        return `https://${domain}`
+        domain = String(domain).trim().replace(/\/+$/, "")
+        // Keep an explicitly selected protocol; an HTTP setting must not
+        // silently become HTTPS on devices that cannot negotiate site TLS.
+        return /^https?:\/\//i.test(domain) ? domain : `https://${domain}`
     }
 
     get requestHeaders() {
@@ -20,21 +20,34 @@ class ZeroByw33 extends ComicSource {
             "Accept": "text/html,application/xhtml+xml",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Referer": `${this.baseUrl}/pc/pc/`,
+            // Mobile user agents redirect /pc/ to a different HTML layout.
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
         }
     }
 
     _absoluteUrl(url) {
         if (!url) return ""
-        url = String(url).trim()
-        if (url.startsWith("//")) return `https:${url}`
-        if (url.startsWith("http://")) return `https://${url.substring(7)}`
-        if (url.startsWith("https://")) return url
+        url = String(url).trim().replaceAll("&amp;", "&")
+        if (url.startsWith("//")) return `${this.baseUrl.split(":")[0]}:${url}`
+        if (/^https?:\/\//i.test(url)) return url
         if (!url.startsWith("/")) url = `/${url}`
         return `${this.baseUrl}${url}`
     }
 
     async _get(url) {
-        const response = await Network.get(url, this.requestHeaders)
+        let response
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                response = await Network.get(url, this.requestHeaders)
+                break
+            } catch (error) {
+                if (!/handshake|tls|ssl/i.test(String(error))) throw error
+                if (attempt === 1) {
+                    throw `zero搬运网 TLS 握手失败。请检查网络，或在源设置中填写本机可访问的完整站点地址（支持 http:// 和 https://）。原始错误：${error}`
+                }
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+            }
+        }
         if (response.status !== 200) {
             throw `zero搬运网请求失败：HTTP ${response.status}`
         }
@@ -107,11 +120,11 @@ class ZeroByw33 extends ComicSource {
     }
 
     _sortParams(options) {
-        const value = options && options[0] ? String(options[0]) : "addtime.asc"
+        const value = options && options[0] ? String(options[0]) : "addtime.desc"
         const parts = value.split(".")
         const allowedOrders = ["addtime", "views", "favores"]
         const order = allowedOrders.includes(parts[0]) ? parts[0] : "addtime"
-        const dir = parts[1] === "desc" ? "desc" : "asc"
+        const dir = parts[1] === "asc" ? "asc" : "desc"
         return [`order=${order}`, `dir=${dir}`]
     }
 
@@ -136,20 +149,24 @@ class ZeroByw33 extends ComicSource {
         }
     }
 
-    account = {
-        loginWithWebview: {
-            url: "https://www.zerobyw33.com/member.php?mod=logging&action=login",
-            checkStatus: (url, title) => {
-                const current = String(url || "").toLowerCase()
-                if (!current.includes("zerobyw33.com")) return false
-                if (current.includes("mod=logging") || current.includes("action=login")) return false
-                return !String(title || "").includes("登录")
+    get account() {
+        return {
+            loginWithWebview: {
+                url: `${this.baseUrl}/member.php?mod=logging&action=login`,
+                checkStatus: (url, title) => {
+                    const current = String(url || "").toLowerCase()
+                    const host = (current.match(/^https?:\/\/([^/?#]+)/) || [])[1]
+                    const expected = this.baseUrl.replace(/^https?:\/\//i, "").toLowerCase()
+                    if (host !== expected) return false
+                    if (current.includes("mod=logging") || current.includes("action=login")) return false
+                    return !String(title || "").includes("登录")
+                },
             },
-        },
-        logout: () => {
-            Network.deleteCookies(this.baseUrl)
-        },
-        registerWebsite: "https://www.zerobyw33.com/member.php?mod=register",
+            logout: () => {
+                Network.deleteCookies(this.baseUrl)
+            },
+            registerWebsite: `${this.baseUrl}/member.php?mod=register`,
+        }
     }
 
     explore = [
@@ -157,11 +174,11 @@ class ZeroByw33 extends ComicSource {
             title: "zero搬运网",
             type: "multiPartPage",
             load: async () => {
-                const results = await Promise.all([
-                    this._loadComicList(this._listUrl(["order=addtime", "dir=asc"], 1)),
-                    this._loadComicList(this._listUrl(["order=views", "dir=desc"], 1)),
-                    this._loadComicList(this._listUrl(["order=favores", "dir=desc"], 1)),
-                ])
+                const results = []
+                // Avoid three simultaneous TLS connections when opening explore.
+                for (const order of ["addtime", "views", "favores"]) {
+                    results.push(await this._loadComicList(this._listUrl([`order=${order}`, "dir=desc"], 1)))
+                }
 
                 return [
                     {
@@ -251,18 +268,18 @@ class ZeroByw33 extends ComicSource {
             if (category === "人气") {
                 options = [
                     "views.desc-人气",
-                    "addtime.asc-上架",
+                    "addtime.desc-上架",
                     "favores.desc-收藏",
                 ]
             } else if (category === "收藏排行") {
                 options = [
                     "favores.desc-收藏",
-                    "addtime.asc-上架",
+                    "addtime.desc-上架",
                     "views.desc-人气",
                 ]
             } else {
                 options = [
-                    "addtime.asc-上架",
+                    "addtime.desc-上架",
                     "views.desc-人气",
                     "favores.desc-收藏",
                 ]
@@ -282,11 +299,11 @@ class ZeroByw33 extends ComicSource {
                 type: "select",
                 label: "排序",
                 options: [
-                    "addtime.asc-上架",
+                    "addtime.desc-上架",
                     "views.desc-人气",
                     "favores.desc-收藏",
                 ],
-                default: "addtime.asc",
+                default: "addtime.desc",
             },
         ],
         enableTagsSuggestions: false,
@@ -405,7 +422,7 @@ class ZeroByw33 extends ComicSource {
 
     settings = {
         domain: {
-            title: "站点域名",
+            title: "站点地址（可包含 http:// 或 https://）",
             type: "input",
             validator: String.raw`^(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?::\d+)?\/?$`,
             default: "www.zerobyw33.com",

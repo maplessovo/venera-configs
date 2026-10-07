@@ -20,6 +20,9 @@ jobs:
       - name: Set up Dart SDK
         uses: dart-lang/setup-dart@v1
 
+      - name: Run source regression tests
+        run: node --test tests/source-regressions.cjs
+
       - name: Fetch base branch
         run: git fetch origin "${{ github.base_ref }}"
 
