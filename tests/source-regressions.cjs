@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
 const {test} = require('node:test');
 
 const root = path.resolve(__dirname, '..');
@@ -19,7 +20,14 @@ function loadSource(file, {settings = {}, request, images = []} = {}) {
             case 'http': calls.push(message); return request(message, calls.length);
             case 'convert': {
                 if (message.type === 'base64') return Uint8Array.from(Buffer.from(message.value, 'base64')).buffer;
-                if (message.type === 'utf8') return Buffer.from(new Uint8Array(message.value)).toString('utf8');
+                if (message.type === 'utf8') return message.isEncode
+                    ? Uint8Array.from(Buffer.from(message.value, 'utf8')).buffer
+                    : Buffer.from(new Uint8Array(message.value)).toString('utf8');
+                if (message.type === 'aes-cbc') {
+                    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(new Uint8Array(message.key)), Buffer.from(new Uint8Array(message.iv)));
+                    decipher.setAutoPadding(false);
+                    return Uint8Array.from(Buffer.concat([decipher.update(Buffer.from(new Uint8Array(message.value))), decipher.final()])).buffer;
+                }
                 throw new Error(`Unexpected conversion: ${message.type}`);
             }
             case 'html': {
@@ -194,5 +202,134 @@ test('YKMH sends flat headers and resolves relative pages against the configured
     }});
     const read = await rt.source.comic.loadEp('https://www.ykmh.net/manhua/book/', 'https://m.ykmh.net/manhua/book/1.html');
     assert.deepEqual(Array.from(read.images), ['https://cdn.example/images/comic/book/1.jpg', 'https://other.example/2.jpg']);
+    assert.equal(rt.calls.length, 2);
+});
+
+test('Manwaba sends JSON headers and encodes search punctuation without creating extra parameters', async () => {
+    const rt = loadSource('manwaba.js', {settings: {domain: 'https://reader.example/'}, request: async message => {
+        const url = new URL(message.url);
+        assert.equal(url.origin, 'https://reader.example');
+        assert.equal(url.searchParams.get('keyword'), '中文 & +?#');
+        assert.equal(url.searchParams.get('page'), '2');
+        assert.equal(message.headers['Content-Type'], 'application/json');
+        assert.equal(message.headers.Referer, 'https://reader.example/');
+        return {status: 200, body: JSON.stringify({code: 200, data: {total: 21, list: [{id: 1, title: 'comic', tags: null}]}})};
+    }});
+    const result = await rt.source.search.load('中文 & +?#', [], 2);
+    assert.equal(result.maxPage, 2);
+    assert.equal(result.comics[0].id, '1');
+    assert.equal(result.comics[0].tags.length, 0);
+});
+
+test('Manwaba keeps one supported explore page and tolerates absent home sections', async () => {
+    const {source} = loadSource('manwaba.js', {request: async () => ({status: 200, body: JSON.stringify({code: 200, data: {
+        comicList: [{id: 1, tags: null}, null], gufengList: null,
+    }})})});
+    assert.equal(source.explore.length, 1);
+    assert.equal(source.explore[0].type, 'multiPartPage');
+    const parts = await source.explore[0].load();
+    assert.ok(Array.isArray(parts));
+    assert.equal(parts.length, 4);
+    assert.equal(parts[0].comics.length, 1);
+    assert.equal(parts[1].comics.length, 0);
+});
+
+test('Manwaba restores the harem category route and preserves filters and pagination', async () => {
+    const rt = loadSource('manwaba.js', {request: async message => {
+        assert.equal(message.url, 'https://manwaxu.cc/api/cate/harem');
+        assert.equal(message.http_method, 'POST');
+        assert.equal(message.headers['Content-Type'], 'application/json');
+        const payload = JSON.parse(message.data);
+        assert.equal(payload.comic.tag, '后宫');
+        assert.equal(payload.comic.status, -1);
+        assert.equal(payload.sort, 0);
+        assert.equal(payload.page.page, 2);
+        return {status: 200, body: JSON.stringify({code: 200, data: {total: 41, list: [{url: '/comic/12/', tags: ['tag']}]}})};
+    }});
+    const result = await rt.source.categoryComics.load('后宫', '后宫', [], 2);
+    assert.equal(result.maxPage, 3);
+    assert.equal(result.comics[0].id, '12');
+});
+
+test('Manwaba routes other and custom tags to their own endpoints instead of the unfiltered list', async () => {
+    const rt = loadSource('manwaba.js', {request: async () => ({status: 200, body: JSON.stringify({code: 200, data: {list: [], total: 0}})})});
+    await rt.source.categoryComics.load('其他', '其他', [], 1);
+    await rt.source.categoryComics.load('新标签', '新标签', [], 1);
+    await rt.source.categoryComics.load('全部', '', [], 1);
+    assert.equal(rt.calls[0].url, 'https://manwaxu.cc/api/cate/other');
+    assert.equal(rt.calls[1].url, 'https://manwaxu.cc/api/cate/' + encodeURIComponent('新标签'));
+    assert.equal(rt.calls[2].url, 'https://manwaxu.cc/api/cate');
+});
+
+test('Manwaba loads every image page when the server caps page size and honors the selected image source', async () => {
+    const rt = loadSource('manwaba.js', {settings: {imageSource: 'https://tu.mwzu.cc'}, request: async message => {
+        const url = new URL(message.url);
+        assert.equal(url.searchParams.get('image_source'), 'https://tu.mwzu.cc');
+        assert.equal(url.searchParams.get('page_size'), '100');
+        assert.equal(url.searchParams.has('imageSource'), false);
+        assert.equal(message.headers.Referer, 'https://manwaxu.cc/comic/1/2');
+        const page = Number(url.searchParams.get('page'));
+        const images = page < 3 ? [`https://img.example/${page * 2 - 1}.jpg`, `https://img.example/${page * 2}.jpg`] : ['https://img.example/5.jpg'];
+        return {status: 200, body: JSON.stringify({code: 200, data: {images: images.map(url => ({url})), pagination: {total: 5, page_size: 2, total_pages: 3}}})};
+    }});
+    const result = await rt.source.comic.loadEp('1', '2');
+    assert.equal(result.images.length, 5);
+    assert.equal(rt.calls.length, 3);
+    assert.equal(result.images[4], 'https://img.example/5.jpg');
+});
+
+test('Manwaba loads all chapters and supplies array-valued detail tags with missing metadata', async () => {
+    const rt = loadSource('manwaba.js', {request: async message => {
+        const url = new URL(message.url);
+        if (url.pathname === '/api/comic/1') return {status: 200, body: JSON.stringify({code: 200, data: {id: 1, title: 'comic', tags: null}})};
+        const page = Number(url.searchParams.get('page'));
+        return {status: 200, body: JSON.stringify({code: 200, data: page === 1 ? [{id: 10, title: 'one'}, {id: 11, title: 'two'}] : [{id: 12, title: 'three'}], pagination: {total: 3, size: 2}})};
+    }});
+    const details = await rt.source.comic.loadInfo('1');
+    assert.equal(details.chapters.size, 3);
+    assert.equal(details.chapters.get('12'), 'three');
+    assert.ok(Array.isArray(details.tags['状态']));
+    assert.equal(details.updateTime, '');
+});
+
+test('Manwaba reports API denials and partial images instead of returning a truncated chapter', async () => {
+    const denied = loadSource('manwaba.js', {request: async () => ({status: 200, body: JSON.stringify({code: 403, msg: '需要登录'})})});
+    await assert.rejects(denied.source.comic.loadEp('1', '2'), error => String(error).includes('需要登录'));
+    const partial = loadSource('manwaba.js', {request: async () => ({status: 200, body: JSON.stringify({code: 200, data: {images: [{url: 'https://img.example/1.jpg'}], pagination: {total: 2}}})})});
+    await assert.rejects(partial.source.comic.loadEp('1', '2'), error => String(error).includes('未加载完整'));
+    assert.equal(partial.calls.length, 2);
+});
+
+test('Manwaba decodes encrypted images and thumbnails with one shared public decoder request', async () => {
+    const imageKey = '0123456789abcdef0123456789abcdef';
+    const rt = loadSource('manwaba.js', {settings: {domain: 'reader.example'}, request: async message => {
+        assert.equal(message.url, 'https://reader.example/static/assets/js/base.js');
+        return {status: 200, body: `const BaseUtil = {AES_KEY: '${imageKey}'};`};
+    }});
+    const [image, cover] = await Promise.all([
+        rt.source.comic.onImageLoad('https://img.example/1.jpg', '1', '2'),
+        rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg'),
+    ]);
+    assert.equal(image.headers.Referer, 'https://reader.example/comic/1/2');
+    assert.equal(cover.headers.Referer, 'https://reader.example/');
+    assert.equal(rt.calls.length, 1);
+    const plain = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2, 3]);
+    const iv = Buffer.alloc(16, 7);
+    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(imageKey), iv);
+    const encrypted = Uint8Array.from(Buffer.concat([iv, cipher.update(plain), cipher.final()])).buffer;
+    for (const config of [image, cover]) {
+        assert.deepEqual(Buffer.from(new Uint8Array(config.onResponse(encrypted))), plain);
+        const original = Uint8Array.from(plain).buffer;
+        assert.equal(config.onResponse(original), original);
+    }
+    assert.throws(() => image.onResponse(new ArrayBuffer(17)), error => String(error).includes('图片数据无效'));
+});
+
+test('Manwaba can retry fetching the public decoder after a failed request', async () => {
+    const rt = loadSource('manwaba.js', {request: async (_, count) => count === 1
+        ? {status: 503, body: ''}
+        : {status: 200, body: "AES_KEY: '0123456789abcdef0123456789abcdef'"}});
+    await assert.rejects(rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg'), error => String(error).includes('解码配置'));
+    assert.equal(typeof (await rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg')).onResponse, 'function');
     assert.equal(rt.calls.length, 2);
 });
