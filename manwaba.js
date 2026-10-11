@@ -2,7 +2,7 @@
 class ManWaBa extends ComicSource {
   name = "漫蛙吧";
   key = "manwaba";
-  version = "1.0.5";
+  version = "1.0.6";
   minAppVersion = "1.4.0";
   url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/manwaba.js";
 
@@ -43,6 +43,9 @@ class ManWaBa extends ComicSource {
     if (!json || (json.code !== undefined && Number(json.code) !== 200)) {
       throw `漫蛙吧：${json && (json.msg || json.message) || "接口返回错误"}`;
     }
+    // Original Venera cannot await thumbnail configs or their response callbacks.
+    // Prepare the decoder before returning comics for the UI to render.
+    await this._getImageKey();
     return json;
   }
 
@@ -65,6 +68,11 @@ class ManWaBa extends ComicSource {
   _comics(items) { return (Array.isArray(items) ? items : []).map(item => this._comic(item)).filter(Boolean); }
 
   async _getImageKey() {
+    if (this._imageKeyDomain !== this.baseUrl) {
+      this._imageKeyDomain = this.baseUrl;
+      this._imageKeyPromise = null;
+      this._imageKey = null;
+    }
     if (!this._imageKeyPromise) {
       // Read the public image decoder's key as data; never execute the site's script.
       this._imageKeyPromise = (async () => {
@@ -75,10 +83,28 @@ class ManWaBa extends ComicSource {
         if (res.status !== 200 || !match || match[1].length < 32) {
           throw "漫蛙吧：无法读取网站图片解码配置，请重试或检查站点域名";
         }
-        return Convert.encodeUtf8(match[1].slice(0, 32));
+        const key = match[1].slice(0, 32);
+        this.saveData("publicImageDecoder", {domain: this.baseUrl, key});
+        this._imageKey = Convert.encodeUtf8(key);
+        return this._imageKey;
       })().catch(error => { this._imageKeyPromise = null; throw error; });
     }
     return this._imageKeyPromise;
+  }
+
+  init() {
+    // Warm up old history covers as well; saved public configuration is available
+    // immediately while the current website configuration refreshes.
+    this._getImageKey().catch(error => log("warning", this.name, String(error)));
+  }
+
+  _thumbnailImageKey() {
+    if (this._imageKey && this._imageKeyDomain === this.baseUrl) return this._imageKey;
+    const saved = this.loadData("publicImageDecoder");
+    if (saved && saved.domain === this.baseUrl && typeof saved.key === "string" && saved.key.length === 32) {
+      return Convert.encodeUtf8(saved.key);
+    }
+    throw "漫蛙吧：请先打开漫画源首页以准备封面解码配置，再重试封面";
   }
 
   _isImage(bytes) {
@@ -106,12 +132,12 @@ class ManWaBa extends ComicSource {
     return decrypted.slice(0, plain.length - padding);
   }
 
-  async _imageConfig(url, referer) {
-    const key = await this._getImageKey();
+  _imageConfig(url, referer) {
     return {
       url,
       headers: {...this.headers, "Accept": "image/avif,image/webp,image/*,*/*;q=0.8", "Referer": referer},
-      onResponse: data => this._decodeImage(data, key),
+      onResponse: data => this._isImage(new Uint8Array(data)) ? data
+        : this._decodeImage(data, this._thumbnailImageKey()),
     };
   }
 
@@ -253,8 +279,11 @@ class ManWaBa extends ComicSource {
       if (!images.length) throw "漫蛙吧：本章节暂无可用图片，可能需要在网站登录或开通章节权限";
       return {images};
     },
-    onImageLoad: (url, comicId, epId) => this._imageConfig(url,
-      `${this.baseUrl}/comic/${encodeURIComponent(comicId)}/${encodeURIComponent(epId)}`),
+    onImageLoad: async (url, comicId, epId) => {
+      await this._getImageKey();
+      return this._imageConfig(url,
+        `${this.baseUrl}/comic/${encodeURIComponent(comicId)}/${encodeURIComponent(epId)}`);
+    },
     onThumbnailLoad: url => this._imageConfig(url, `${this.baseUrl}/`),
   };
 

@@ -8,7 +8,7 @@ const {test} = require('node:test');
 const root = path.resolve(__dirname, '..');
 const library = fs.readFileSync(path.join(root, '_venera_.js'), 'utf8');
 
-function loadSource(file, {settings = {}, request, images = []} = {}) {
+function loadSource(file, {settings = {}, request, images = [], decoderRequest = false} = {}) {
     const calls = [], delays = [], data = new Map();
     let source, disposed = 0;
     function sendMessage(message) {
@@ -17,7 +17,11 @@ function loadSource(file, {settings = {}, request, images = []} = {}) {
             case 'load_data': return data.get(message.data_key);
             case 'save_data': return data.set(message.data_key, message.data);
             case 'delay': delays.push(message.time); return Promise.resolve();
-            case 'http': calls.push(message); return request(message, calls.length);
+            case 'http':
+                if (file === 'manwaba.js' && !decoderRequest && message.url.endsWith('/static/assets/js/base.js')) {
+                    return Promise.resolve({status: 200, body: "AES_KEY: '0123456789abcdef0123456789abcdef'"});
+                }
+                calls.push(message); return request(message, calls.length);
             case 'convert': {
                 if (message.type === 'base64') return Uint8Array.from(Buffer.from(message.value, 'base64')).buffer;
                 if (message.type === 'utf8') return message.isEncode
@@ -302,14 +306,14 @@ test('Manwaba reports API denials and partial images instead of returning a trun
 
 test('Manwaba decodes encrypted images and thumbnails with one shared public decoder request', async () => {
     const imageKey = '0123456789abcdef0123456789abcdef';
-    const rt = loadSource('manwaba.js', {settings: {domain: 'reader.example'}, request: async message => {
+    const rt = loadSource('manwaba.js', {decoderRequest: true, settings: {domain: 'reader.example'}, request: async message => {
         assert.equal(message.url, 'https://reader.example/static/assets/js/base.js');
         return {status: 200, body: `const BaseUtil = {AES_KEY: '${imageKey}'};`};
     }});
-    const [image, cover] = await Promise.all([
-        rt.source.comic.onImageLoad('https://img.example/1.jpg', '1', '2'),
-        rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg'),
-    ]);
+    const cover = rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg');
+    // Original Venera's parser rejects a Promise here and cannot await onResponse.
+    assert.equal(typeof cover.then, 'undefined');
+    const image = await rt.source.comic.onImageLoad('https://img.example/1.jpg', '1', '2');
     assert.equal(image.headers.Referer, 'https://reader.example/comic/1/2');
     assert.equal(cover.headers.Referer, 'https://reader.example/');
     assert.equal(rt.calls.length, 1);
@@ -326,12 +330,41 @@ test('Manwaba decodes encrypted images and thumbnails with one shared public dec
 });
 
 test('Manwaba can retry fetching the public decoder after a failed request', async () => {
-    const rt = loadSource('manwaba.js', {request: async (_, count) => count === 1
+    const rt = loadSource('manwaba.js', {decoderRequest: true, request: async (_, count) => count === 1
         ? {status: 503, body: ''}
         : {status: 200, body: "AES_KEY: '0123456789abcdef0123456789abcdef'"}});
-    await assert.rejects(rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg'), error => String(error).includes('解码配置'));
-    assert.equal(typeof (await rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg')).onResponse, 'function');
+    await assert.rejects(rt.source._getImageKey(), error => String(error).includes('解码配置'));
+    await rt.source._getImageKey();
+    assert.equal(typeof rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg').onResponse, 'function');
     assert.equal(rt.calls.length, 2);
+});
+
+test('Manwaba prepares a synchronous cover decoder before returning lists, search, and details', async () => {
+    let finishDecoder;
+    const rt = loadSource('manwaba.js', {decoderRequest: true, request: async message => {
+        if (message.url.endsWith('/base.js')) return new Promise(resolve => { finishDecoder = resolve; });
+        return {status: 200, body: JSON.stringify({code: 200, data: {comicList: []}})};
+    }});
+    let completed = false;
+    const loading = rt.source.explore[0].load().then(result => { completed = true; return result; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(completed, false);
+    finishDecoder({status: 200, body: "AES_KEY: '0123456789abcdef0123456789abcdef'"});
+    await loading;
+    const config = rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg');
+    assert.equal(typeof config.then, 'undefined');
+    assert.equal(typeof rt.source._thumbnailImageKey().then, 'undefined');
+    assert.equal(rt.data.get('publicImageDecoder').domain, rt.source.baseUrl);
+});
+
+test('Manwaba restores a saved public decoder for history covers and rejects other domains', () => {
+    const rt = loadSource('manwaba.js');
+    rt.data.set('publicImageDecoder', {domain: rt.source.baseUrl, key: '0123456789abcdef0123456789abcdef'});
+    assert.equal(rt.source._thumbnailImageKey().byteLength, 32);
+    rt.data.set('publicImageDecoder', {domain: 'https://other.example', key: '0123456789abcdef0123456789abcdef'});
+    assert.throws(() => rt.source._thumbnailImageKey(), error => String(error).includes('首页'));
+    const plain = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]).buffer;
+    assert.equal(rt.source.comic.onThumbnailLoad('https://img.example/plain.jpg').onResponse(plain), plain);
 });
 
 for (const file of ['copy_manga.js', 'copy_manga_multi_accounts.js']) {
