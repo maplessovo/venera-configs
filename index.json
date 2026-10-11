@@ -3,13 +3,13 @@
         "name": "拷贝漫画",
         "fileName": "copy_manga.js",
         "key": "copy_manga",
-        "version": "1.4.2"
+        "version": "1.4.3"
     },
     {
         "name": "拷贝漫画(多账号)",
         "fileName": "copy_manga_multi_accounts.js",
         "key": "copy_manga",
-        "version": "1.4.1"
+        "version": "1.4.2"
     },
     {
         "name": "Komiic",
@@ -21,7 +21,7 @@
         "name": "包子漫画",
         "fileName": "baozi.js",
         "key": "baozi",
-        "version": "1.1.8"
+        "version": "1.1.9"
     },
     {
         "name": "Picacg",
@@ -114,7 +114,7 @@
         "name": "漫蛙吧",
         "fileName": "manwaba.js",
         "key": "manwaba",
-        "version": "1.0.4"
+        "version": "1.0.5"
     },
     {
         "name": "Lanraragi",

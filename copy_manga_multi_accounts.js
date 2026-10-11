@@ -4,11 +4,11 @@ class CopyManga extends ComicSource {
 
     key = "copy_manga"
 
-    version = "1.4.1"
+    version = "1.4.2"
 
     minAppVersion = "1.6.0"
 
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/copy_manga_multi_accounts.js"
+    url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/copy_manga_multi_accounts.js"
 
     async getReqID() {
         if (this.copyRegion === "0") {
@@ -208,7 +208,7 @@ class CopyManga extends ComicSource {
     explore = [
         {
             title: "拷贝漫画M",
-            type: "singlePageWithMultiPart",
+            type: "multiPartPage",
             load: async () => {
                 let dataStr = await Network.get(
                     `${this.apiUrl}/api/v3/h5/homeIndex`,
@@ -244,16 +244,16 @@ class CopyManga extends ComicSource {
                     }
                 }
 
-                let res = {}
-                res["推荐"] = data["results"]["recComics"]["list"].map(parseComic)
-                res["热门"] = data["results"]["hotComics"].map(parseComic)
-                res["最新"] = data["results"]["newComics"].map(parseComic)
-                res["完结"] = data["results"]["finishComics"]["list"].map(parseComic)
-                res["今日排行"] = data["results"]["rankDayComics"]["list"].map(parseComic)
-                res["本周排行"] = data["results"]["rankWeekComics"]["list"].map(parseComic)
-                res["本月排行"] = data["results"]["rankMonthComics"]["list"].map(parseComic)
-
-                return res
+                const target = (category, param, options = []) => ({page: "category", attributes: {category, param, options}})
+                return [
+                    {title: "推荐", comics: data.results.recComics.list.map(parseComic), viewMore: target("推荐", "explore:recommend")},
+                    {title: "热门", comics: data.results.hotComics.map(parseComic), viewMore: target("全部", "", ["", "*popular"])},
+                    {title: "最新", comics: data.results.newComics.map(parseComic), viewMore: target("最新", "explore:latest")},
+                    {title: "完结", comics: data.results.finishComics.list.map(parseComic), viewMore: target("全部", "", ["finish", "*datetime_updated"])},
+                    {title: "今日排行", comics: data.results.rankDayComics.list.map(parseComic), viewMore: target("排行", "ranking", ["male", "day"])},
+                    {title: "本周排行", comics: data.results.rankWeekComics.list.map(parseComic), viewMore: target("排行", "ranking", ["male", "week"])},
+                    {title: "本月排行", comics: data.results.rankMonthComics.list.map(parseComic), viewMore: target("排行", "ranking", ["male", "month"])},
+                ]
             }
         }
     ]
@@ -344,18 +344,26 @@ class CopyManga extends ComicSource {
 
     categoryComics = {
         load: async (category, param, options, page) => {
+            options = options || [];
+            const pageSize = 30;
+            const offset = ((page || 1) - 1) * pageSize;
             let category_url;
+            if (param === "explore:recommend") {
+                category_url = `${this.apiUrl}/api/v3/recs?pos=3200102&limit=${pageSize}&offset=${offset}`
+            } else if (param === "explore:latest") {
+                category_url = `${this.apiUrl}/api/v3/update/newest?limit=${pageSize}&offset=${offset}`
+            }
             // 分类-排行
-            if (category === "排行" || param === "ranking") {
-                category_url = `${this.apiUrl}/api/v3/ranks?limit=30&offset=${(page - 1) * 30}&_update=true&type=1&audience_type=${options[0]}&date_type=${options[1]}`
+            else if (category === "排行" || param === "ranking") {
+                category_url = `${this.apiUrl}/api/v3/ranks?limit=${pageSize}&offset=${offset}&_update=true&type=1&audience_type=${options[0] || "male"}&date_type=${options[1] || "day"}`
             } else {
                 // 分类-主题
                 if (category !== undefined && category !== null) {
                     // 若传入category，则转化为对应param
                     param = CopyManga.category_param_dict[category] || "";
                 }
-                options = options.map(e => e.replace("*", "-"))
-                category_url = `${this.apiUrl}/api/v3/comics?limit=30&offset=${(page - 1) * 30}&ordering=${options[1]}&theme=${param}&top=${options[0]}`
+                options = options.map(e => String(e || "").replace("*", "-"))
+                category_url = `${this.apiUrl}/api/v3/comics?limit=${pageSize}&offset=${offset}&ordering=${options[1] || "-datetime_updated"}&theme=${param || ""}&top=${options[0] || ""}`
             }
 
 
@@ -421,7 +429,7 @@ class CopyManga extends ComicSource {
 
             return {
                 comics: data["results"]["list"].map(parseComic),
-                maxPage: (data["results"]["total"] - (data["results"]["total"] % 21)) / 21 + 1
+                maxPage: Math.max(1, Math.ceil(data["results"]["total"] / pageSize))
             }
         },
         optionList: [

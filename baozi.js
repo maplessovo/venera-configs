@@ -5,7 +5,7 @@ class Baozi extends ComicSource {
   // 唯一标识符
   key = "baozi";
 
-  version = "1.1.8";
+  version = "1.1.9";
 
   minAppVersion = "1.0.0";
 
@@ -156,8 +156,7 @@ class Baozi extends ComicSource {
       /// 标题同时用作标识符, 不能重复
       title: "包子漫画",
 
-      /// singlePageWithMultiPart 或者 multiPageComicList
-      type: "singlePageWithMultiPart",
+      type: "multiPartPage",
 
       load: async () => {
         var res = await Network.get(this.baseUrl);
@@ -165,18 +164,31 @@ class Baozi extends ComicSource {
           throw "Invalid status code: " + res.status;
         }
         let document = new HtmlDocument(res.body);
-        let parts = document.querySelectorAll("div.index-recommend-items");
-        let result = {};
-        for (let part of parts) {
-          let title = part.querySelector("div.catalog-title").text.trim();
-          let comics = part
-            .querySelectorAll("div.comics-card")
-            .map((e) => this.parseComic(e));
-          if (comics.length > 0) {
-            result[title] = comics;
+        try {
+          let parts = document.querySelectorAll("div.index-recommend-items");
+          let result = [];
+          for (let part of parts) {
+            let title = part.querySelector("div.catalog-title").text.trim();
+            let comics = part.querySelectorAll("div.comics-card").map((e) => this.parseComic(e));
+            if (comics.length > 0) {
+              const link = part.querySelector('a[href="/classify"], a[href="/list/new"]');
+              let viewMore = null;
+              if (link) {
+                const isNew = link.attributes["href"] === "/list/new";
+                const region = {"推荐国漫": "cn", "推荐韩漫": "kr", "推荐日漫": "jp"}[title] || "all";
+                viewMore = {page: "category", attributes: {
+                  category: isNew ? "最新上架" : title === "热血漫画" ? "热血" : "全部",
+                  param: isNew ? "explore:new" : title === "热血漫画" ? "rexie" : "all",
+                  options: [region, "all"],
+                }};
+              }
+              result.push({title, comics, viewMore});
+            }
           }
+          return result;
+        } finally {
+          document.dispose();
         }
-        return result;
       },
     },
   ];
@@ -268,8 +280,21 @@ class Baozi extends ComicSource {
   /// 分类漫画页面, 即点击分类标签后进入的页面
   categoryComics = {
     load: async (category, param, options, page) => {
+      if (param === "explore:new") {
+        // The website's new-release list is finite and has no page-2 link.
+        if (page > 1) return {comics: [], maxPage: 1};
+        const res = await Network.get(`${this.baseUrl}/list/new`);
+        if (res.status !== 200) throw "Invalid status code: " + res.status;
+        const document = new HtmlDocument(res.body);
+        try {
+          return {comics: document.querySelectorAll("div.comics-card").map(e => this.parseComic(e)), maxPage: 1};
+        } finally {
+          document.dispose();
+        }
+      }
+      options = options || [];
       let res = await Network.get(
-        `${this.baseUrl}/api/bzmhq/amp_comic_list?type=${param}&region=${options[0]}&state=${options[1]}&filter=%2a&page=${page}&limit=36&language=${this.lang}&__amp_source_origin=${this.baseUrl}`
+        `${this.baseUrl}/api/bzmhq/amp_comic_list?type=${param || "all"}&region=${options[0] || "all"}&state=${options[1] || "all"}&filter=%2a&page=${page || 1}&limit=36&language=${this.lang}&__amp_source_origin=${this.baseUrl}`
       );
       if (res.status !== 200) {
         throw "Invalid status code: " + res.status;

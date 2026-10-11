@@ -333,3 +333,75 @@ test('Manwaba can retry fetching the public decoder after a failed request', asy
     assert.equal(typeof (await rt.source.comic.onThumbnailLoad('https://img.example/cover.jpg')).onResponse, 'function');
     assert.equal(rt.calls.length, 2);
 });
+
+for (const file of ['copy_manga.js', 'copy_manga_multi_accounts.js']) {
+    test(`${file}: each explore More target opens the matching paginated list`, async () => {
+        const comic = {path_word: 'comic-1', name: 'comic', theme: [], author: [], cover: 'https://img.example/cover.jpg'};
+        const home = {recComics: {list: [{comic}]}, hotComics: [comic], newComics: [comic], finishComics: {list: [comic]},
+            rankDayComics: {list: [{comic}]}, rankWeekComics: {list: [{comic}]}, rankMonthComics: {list: [{comic}]}};
+        const rt = loadSource(file, {request: async message => ({status: 200, body: JSON.stringify({code: 200,
+            results: message.url.includes('homeIndex') ? home : {list: [comic], total: 61}})})});
+        Object.defineProperty(rt.source, 'headers', {value: {}});
+        assert.equal(rt.source.explore.length, 1);
+        assert.equal(rt.source.explore[0].type, 'multiPartPage');
+        const parts = await rt.source.explore[0].load();
+        assert.equal(parts.length, 7);
+        const targets = new Map();
+        for (const part of parts) {
+            assert.equal(part.viewMore.page, 'category');
+            const {category, param, options} = part.viewMore.attributes;
+            const page = await rt.source.categoryComics.load(category, param, options, 2);
+            assert.equal(page.maxPage, 3);
+            const url = new URL(rt.calls.at(-1).url);
+            assert.equal(url.searchParams.get('limit'), '30');
+            assert.equal(url.searchParams.get('offset'), '30');
+            targets.set(part.title, url);
+        }
+        assert.equal(targets.get('推荐').pathname, '/api/v3/recs');
+        assert.equal(targets.get('推荐').searchParams.get('pos'), '3200102');
+        assert.equal(targets.get('热门').searchParams.get('ordering'), '-popular');
+        assert.equal(targets.get('最新').pathname, '/api/v3/update/newest');
+        assert.equal(targets.get('完结').searchParams.get('top'), 'finish');
+        for (const [title, period] of [['今日排行', 'day'], ['本周排行', 'week'], ['本月排行', 'month']]) {
+            assert.equal(targets.get(title).pathname, '/api/v3/ranks');
+            assert.equal(targets.get(title).searchParams.get('date_type'), period);
+        }
+    });
+}
+
+test('Baozi category More destinations preserve region filters and use safe defaults', async () => {
+    const rt = loadSource('baozi.js', {request: async () => ({status: 200, body: JSON.stringify({items: [], next: null})})});
+    assert.equal(rt.source.explore.length, 1);
+    assert.equal(rt.source.explore[0].type, 'multiPartPage');
+    await rt.source.categoryComics.load('全部', 'all', ['kr', 'serial'], 2);
+    const url = new URL(rt.calls[0].url);
+    assert.equal(url.searchParams.get('region'), 'kr');
+    assert.equal(url.searchParams.get('state'), 'serial');
+    assert.equal(url.searchParams.get('page'), '2');
+    await rt.source.categoryComics.load('全部', null, null, 1);
+    const defaultUrl = new URL(rt.calls[1].url);
+    assert.equal(defaultUrl.searchParams.get('type'), 'all');
+    assert.equal(defaultUrl.searchParams.get('region'), 'all');
+    assert.equal(defaultUrl.searchParams.get('state'), 'all');
+    const ended = await rt.source.categoryComics.load('最新上架', 'explore:new', [], 2);
+    assert.equal(ended.maxPage, 1);
+    assert.equal(ended.comics.length, 0);
+    assert.equal(rt.calls.length, 2);
+});
+
+test('Manwaba More targets preserve popular, new, updated, and collection sorting', async () => {
+    const rt = loadSource('manwaba.js', {request: async message => ({status: 200, body: JSON.stringify({code: 200,
+        data: message.url.includes('/home?') ? {comicList: [], gufengList: [], xuanhuanList: [], xiaoyuanList: []} : {list: [], total: 0}})})});
+    const parts = await rt.source.explore[0].load();
+    const expected = ['3', '1', '0', '4'];
+    for (let i = 0; i < parts.length; i++) {
+        const target = parts[i].viewMore;
+        assert.equal(target.page, 'category');
+        const {category, param, options} = target.attributes;
+        await rt.source.categoryComics.load(category, param, options, 2);
+        const payload = JSON.parse(rt.calls.at(-1).data);
+        assert.equal(payload.sort, Number(expected[i]));
+        assert.equal(payload.page.page, 2);
+        assert.equal(payload.comic.tag, i === 1 ? '完整版' : '');
+    }
+});

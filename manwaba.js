@@ -2,7 +2,7 @@
 class ManWaBa extends ComicSource {
   name = "漫蛙吧";
   key = "manwaba";
-  version = "1.0.4";
+  version = "1.0.5";
   minAppVersion = "1.4.0";
   url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/manwaba.js";
 
@@ -124,9 +124,11 @@ class ManWaBa extends ComicSource {
       });
       const data = res.data || {};
       return [
-        ["热门", "comicList"], ["最新完整版", "gufengList"],
-        ["最新更新", "xuanhuanList"], ["热门收藏", "xiaoyuanList"],
-      ].map(([title, key]) => ({title, comics: this._comics(data[key])}));
+        ["热门", "comicList", "全部", "", "3"], ["最新完整版", "gufengList", "完整版", "完整版", "1"],
+        ["最新更新", "xuanhuanList", "全部", "", "0"], ["热门收藏", "xiaoyuanList", "全部", "", "4"],
+      ].map(([title, key, category, param, sort]) => ({title, comics: this._comics(data[key]),
+        viewMore: {page: "category", attributes: {category, param, options: ["2", "0", sort]}},
+      }));
     },
   }];
 
