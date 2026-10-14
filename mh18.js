@@ -8,12 +8,12 @@ class MH18 extends ComicSource {
   // unique id of the source
   key = "mh18"
 
-  version = "1.0.0"
+  version = "1.0.1"
 
   minAppVersion = "1.4.0"
 
   // update url
-  url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/mh18.js"
+  url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/mh18.js"
 
   settings = {
     domains: {
@@ -24,14 +24,46 @@ class MH18 extends ComicSource {
   }
 
   get baseUrl() {
-    return `https://${this.loadSetting("domains")}`;
+    const domain = String(this.loadSetting("domains") || "18mh.org").trim()
+      .replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    return `https://${domain}`;
   }
 
   get headers() {
+    // Venera supplies the browser UA and reuses the UA associated with cf_clearance.
     return {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
-      "Referer": this.baseUrl
+      "Referer": `${this.baseUrl}/`
     };
+  }
+
+  isCloudflareChallenge(response) {
+    const headers = response.headers || {};
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === "cf-mitigated" &&
+        String(headers[name]).trim().toLowerCase() === "challenge") return true;
+    }
+    const body = typeof response.body === "string" ? response.body : "";
+    if (/window\._cf_chl_opt|cf-browser-verification|id\s*=\s*["']challenge-form["']/i.test(body)) {
+      return true;
+    }
+    if (/<title[^>]*>\s*Just a moment(?:\.{3}|…)?\s*<\/title>/i.test(body)) return true;
+    return (response.status === 403 || response.status === 503) &&
+      /\/cdn-cgi\/challenge-platform\/|__cf_chl_/i.test(body);
+  }
+
+  async request(url) {
+    // Preserve native CloudflareException errors thrown by Network.get.
+    const response = await Network.get(url, this.headers);
+    if (this.isCloudflareChallenge(response)) {
+      // Verify a full page on the challenged host, rather than an AJAX endpoint.
+      // Venera recognizes this marker, syncs WebView cookies/UA, then retries.
+      const origin = String(url).match(/^https?:\/\/[^/?#]+/i)?.[0] || this.baseUrl;
+      throw `CloudflareException: ${origin}/`;
+    }
+    if (response.status !== 200) {
+      throw `请求失败：HTTP ${response.status}`;
+    }
+    return response;
   }
 
   parseComics(doc) {
@@ -58,7 +90,7 @@ class MH18 extends ComicSource {
       type: "multiPartPage",
 
       load: async () => {
-        const res = await Network.get(this.baseUrl, this.headers);
+        const res = await this.request(this.baseUrl);
         const document = new HtmlDocument(res.body);
         const result = [{ title: "近期更新", comics: [], viewMore: null }];
         for (let item of document.querySelector(".pb-unit-md").querySelectorAll(".slicarda")) {
@@ -191,10 +223,7 @@ class MH18 extends ComicSource {
   /// category comic loading related
   categoryComics = {
     load: async (category, params, options, page) => {
-      const res = await Network.get(`${this.baseUrl}${params}/page/${page}`, this.headers);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
+      const res = await this.request(`${this.baseUrl}${params}/page/${page}`);
       const document = new HtmlDocument(res.body);
       let maxPage = null;
       try {
@@ -212,10 +241,7 @@ class MH18 extends ComicSource {
   /// search related
   search = {
     load: async (keyword, options, page) => {
-      const res = await Network.get(`${this.baseUrl}/s/${keyword}?page=${page}`);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
+      const res = await this.request(`${this.baseUrl}/s/${encodeURIComponent(keyword)}?page=${page}`);
       const document = new HtmlDocument(res.body);
       let maxPage = null;
       try {
@@ -234,6 +260,9 @@ class MH18 extends ComicSource {
 
   /// single comic related
   comic = {
+    onImageLoad: (url) => {
+      return { headers: this.headers };
+    },
     onThumbnailLoad: (url) => {
       return {
         headers: this.headers
@@ -243,10 +272,7 @@ class MH18 extends ComicSource {
       if (!id.startsWith("http")) {
         id = this.baseUrl + id;
       }
-      const res = await Network.get(id);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
+      const res = await this.request(id);
       const document = new HtmlDocument(res.body);
       const title = document.querySelector(".text-xl").text.trim().split("   ")[0]
       const cover = document.querySelector(".object-cover").attributes["src"];
@@ -271,7 +297,7 @@ class MH18 extends ComicSource {
         tags["标签"].push(tag.text.replace("\n", "").replaceAll(" ", "").replace("#", ""));
       }
       const mangaId = document.querySelector("#mangachapters").attributes["data-mid"];
-      const chapterRes = await Network.get(`${this.baseUrl}/manga/get?mid=${mangaId}&mode=all&t=${Date.now()}`, this.headers);
+      const chapterRes = await this.request(`${this.baseUrl}/manga/get?mid=${mangaId}&mode=all&t=${Date.now()}`);
       const chapterDoc = new HtmlDocument(chapterRes.body);
       const chapters = {};
       for (let ch of chapterDoc.querySelectorAll(".chapteritem")) {
@@ -298,10 +324,7 @@ class MH18 extends ComicSource {
 
     loadEp: async (comicId, epId) => {
       const ids = epId.split("@");
-      const res = await Network.get(`${this.baseUrl}/chapter/getcontent?m=${ids[0]}&c=${ids[1]}`, this.headers);
-      if (res.status !== 200) {
-        throw `Invalid status code: ${res.status}`;
-      }
+      const res = await this.request(`${this.baseUrl}/chapter/getcontent?m=${ids[0]}&c=${ids[1]}`);
       const document = new HtmlDocument(res.body);
       const images = [];
       for (let i of document.querySelector("#chapcontent").querySelectorAll("img")) {

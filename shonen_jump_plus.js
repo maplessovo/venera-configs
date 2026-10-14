@@ -1,10 +1,10 @@
 class ShonenJumpPlus extends ComicSource {
   name = "少年ジャンプ＋";
   key = "shonen_jump_plus";
-  version = "1.1.1";
+  version = "1.1.2";
   minAppVersion = "1.2.1";
   url =
-    "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/shonen_jump_plus.js";
+    "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/shonen_jump_plus.js";
 
   deviceId = this.generateDeviceId();
   bearerToken = null;
@@ -32,14 +32,32 @@ class ShonenJumpPlus extends ComicSource {
   }
 
   async init() {
-    const url = "https://apps.apple.com/jp/app/id875750302";
+    // Apple exposes a JSON lookup API; HTML class names change regularly.
+    try {
+      const response = await Network.get(
+        "https://itunes.apple.com/lookup?id=875750302&country=jp",
+        { "Accept": "application/json" },
+      );
+      const data = this.parseJsonResponse(response, "App Store");
+      const app = data.results?.find((item) => item.trackId === 875750302);
+      if (/^\d+(\.\d+)+$/.test(app?.version || "")) {
+        this.latestVersion = app.version;
+        return;
+      }
+    } catch (_) {
+      // Version discovery is optional; try the store page before using the default.
+    }
 
-    const resp = await Network.get(url);
-
-    const match = resp.body.match(/whats-new__latest__version">[^<]*?([\d.]+)</);
-
-    if (match && match[1]) {
-      this.latestVersion = match[1];
+    try {
+      const response = await Network.get("https://apps.apple.com/jp/app/id875750302");
+      if (response.status !== 200 || typeof response.body !== "string") return;
+      const match = response.body.match(/"softwareVersion"\s*:\s*"([\d.]+)"/) ||
+        response.body.match(/whats-new__latest__version">[^<]*?([\d.]+)/);
+      if (match && /^\d+(\.\d+)+$/.test(match[1])) {
+        this.latestVersion = match[1];
+      }
+    } catch (_) {
+      // A store outage must not prevent the source from loading.
     }
   }
 
@@ -241,13 +259,31 @@ class ShonenJumpPlus extends ComicSource {
     }
   }
 
-  async graphqlRequest(operationName, variables) {
+  parseJsonResponse(response, operation) {
+    if (!response || response.status < 200 || response.status >= 300 ||
+      !response.status) {
+      throw new Error(`${operation} 请求失败：HTTP ${response?.status || "未知"}`);
+    }
+    let result;
+    try {
+      result = JSON.parse(typeof response.body === "string" ? response.body.trim() : response.body);
+    } catch (_) {
+      // Do not expose raw responses: they may contain access tokens or HTML.
+      throw new Error(`${operation} 返回非 JSON 响应（HTTP ${response.status}），请检查网络或站点访问限制。`);
+    }
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new Error(`${operation} 返回无效的 JSON 数据。`);
+    }
+    return result;
+  }
+
+  async graphqlRequest(operationName, variables, allowErrors = false) {
     const payload = {
       operationName,
       variables,
       query: GraphQLQueries[operationName],
     };
-    const response = await Network.post(
+    const request = () => Network.post(
       `${this.apiBase}/graphql?opname=${operationName}`,
       {
         ...this.headers,
@@ -259,8 +295,17 @@ class ShonenJumpPlus extends ComicSource {
       JSON.stringify(payload),
     );
 
-    if (response.status !== 200) throw `Invalid status: ${response.status}`;
-    return JSON.parse(response.body);
+    let response = await request();
+    if (response.status === 401) {
+      // Renew an unexpectedly expired token once, without an infinite retry loop.
+      await this.fetchBearerToken();
+      response = await request();
+    }
+    const result = this.parseJsonResponse(response, operationName);
+    if (!allowErrors && result.errors?.length) {
+      throw new Error(`${operationName} 请求失败：${result.errors.map((error) => error.message || "GraphQL 错误").join("；")}`);
+    }
+    return result;
   }
 
   normalizeEpisodeId(epId) {
@@ -281,12 +326,13 @@ class ShonenJumpPlus extends ComicSource {
   async fetchBearerToken() {
     const response = await Network.post(
       `${this.apiBase}/user_account/access_token`,
-      this.headers,
+      { ...this.headers, "Accept": "application/json" },
       "",
     );
-    const { access_token, user_account_id } = JSON.parse(
-      response.body,
-    );
+    const { access_token, user_account_id } = this.parseJsonResponse(response, "认证");
+    if (typeof access_token !== "string" || !access_token.trim()) {
+      throw new Error("认证响应缺少有效的 access_token，请检查客户端版本或稍后重试。");
+    }
     this.bearerToken = access_token;
     this.userAccountId = user_account_id;
     this.tokenExpiry = Date.now() + 3600000;
@@ -351,11 +397,15 @@ class ShonenJumpPlus extends ComicSource {
     }
     const response = await this.graphqlRequest("Rent", {
       input: { id: episodeId, unitPrice },
-    });
+    }, true);
 
     if (response.errors?.[0]?.extensions?.code === "FAILED_TO_USE_POINT") {
       await this.refreshAccount();
       return this.rentChapter(episodeId, unitPrice, retryCount + 1);
+    }
+
+    if (response.errors?.length) {
+      throw new Error(response.errors.map((error) => error.message || "Rent failed").join("；"));
     }
 
     this.userAccountId = response?.data?.rent?.userAccount?.databaseId;
