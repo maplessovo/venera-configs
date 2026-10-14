@@ -156,7 +156,8 @@
         "name": "18漫画",
         "fileName": "mh18.js",
         "key": "mh18",
-        "version": "1.0.0"
+        "version": "1.0.1",
+        "description": "遇到 Cloudflare 验证时请在漫画源设置中点击登录"
     },
     {
         "name": "漫小肆",
