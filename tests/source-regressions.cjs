@@ -8,12 +8,15 @@ const {test} = require('node:test');
 const root = path.resolve(__dirname, '..');
 const library = fs.readFileSync(path.join(root, '_venera_.js'), 'utf8');
 
-function loadSource(file, {settings = {}, request, images = [], decoderRequest = false} = {}) {
+function loadSource(file, {settings = {}, settingsUnavailable = false, request, images = [], decoderRequest = false} = {}) {
     const calls = [], delays = [], data = new Map();
     let source, disposed = 0;
     function sendMessage(message) {
         switch (message.method) {
-            case 'load_setting': return settings[message.setting_key] ?? source?.settings?.[message.setting_key]?.default;
+            case 'load_setting': {
+                if (settingsUnavailable) throw new Error(`Setting not found: ${message.setting_key}`);
+                return settings[message.setting_key] ?? source?.settings?.[message.setting_key]?.default;
+            }
             case 'load_data': return data.get(message.data_key);
             case 'save_data': return data.set(message.data_key, message.data);
             case 'delay': delays.push(message.time); return Promise.resolve();
@@ -94,6 +97,61 @@ test('Zero does not retry HTTP denial responses', async () => {
     const rt = loadSource('zerobyw33.js', {request: async () => ({status: 403, body: ''})});
     await assert.rejects(rt.source._get('https://www.zerobyw33.com/pc/pc/'), error => String(error).includes('HTTP 403'));
     assert.equal(rt.calls.length, 1);
+});
+
+test('MH18 WebView status checks the selected host without accepting challenge titles', () => {
+    const {source} = loadSource('mh18.js', {settings: {domains: 'https://reader.example/path'}});
+    assert.equal(source.baseUrl, 'https://reader.example');
+    assert.equal(source.account.loginWithWebview.url, 'https://18mh.org/');
+    assert.equal(source.account.loginWithWebview.checkStatus('https://reader.example/manga', '18漫画'), true);
+    assert.equal(source.account.loginWithWebview.checkStatus('https://reader.example.evil.test/', '18漫画'), false);
+    assert.equal(source.account.loginWithWebview.checkStatus('http://reader.example/', '18漫画'), false);
+    assert.equal(source.account.loginWithWebview.checkStatus('https://reader.example/', 'Just a moment...'), false);
+    assert.equal(source.account.loginWithWebview.checkStatus('https://reader.example/', 'reader.example'), false);
+    assert.equal(source.headers['User-Agent'], undefined);
+});
+
+test('MH18 account config can be parsed before source settings are available', () => {
+    const {source} = loadSource('mh18.js', {settingsUnavailable: true});
+    assert.equal(source.account.loginWithWebview.url, 'https://18mh.org/');
+    assert.equal(typeof source.account.loginWithWebview.checkStatus, 'function');
+});
+
+test('MH18 detects Cloudflare response headers and challenge HTML without retrying', async () => {
+    const headerChallenge = loadSource('mh18.js', {request: async () => ({
+        status: 403, headers: {'CF-Mitigated': 'challenge'}, body: '<html></html>',
+    })});
+    await assert.rejects(headerChallenge.source.getPage('https://18mh.org/'), error => String(error).includes('Cloudflare 验证'));
+    assert.equal(headerChallenge.calls.length, 1);
+
+    const bodyChallenge = loadSource('mh18.js', {request: async () => ({
+        status: 200, body: '<title>Just a moment...</title><script src="/cdn-cgi/challenge-platform/x"></script>',
+    })});
+    await assert.rejects(bodyChallenge.source.getPage('https://18mh.org/'), error => String(error).includes('Cloudflare 验证'));
+
+    const denied = loadSource('mh18.js', {request: async () => ({status: 403, body: 'Forbidden'})});
+    await assert.rejects(denied.source.getPage('https://18mh.org/'), error => String(error).includes('HTTP 403'));
+    assert.equal((await loadSource('mh18.js', {request: async () => ({status: 200, body: 'ok'})}).source.getPage('https://18mh.org/')), 'ok');
+});
+
+test('MH18 routes explore, category, search, comic and chapter requests through challenge detection', async () => {
+    const rt = loadSource('mh18.js', {request: async () => ({
+        status: 403, headers: {'cf-mitigated': 'challenge'}, body: '',
+    })});
+    const operations = [
+        () => rt.source.explore[0].load(),
+        () => rt.source.categoryComics.load('全部', '/manga', [], 1),
+        () => rt.source.search.load('测试 漫画', [], 1),
+        () => rt.source.comic.loadInfo('/manga/example'),
+        () => rt.source.comic.loadEp('example', '1@2'),
+    ];
+    for (const operation of operations) {
+        await assert.rejects(operation(), error => String(error).includes('Cloudflare 验证'));
+    }
+    assert.equal(rt.calls.length, operations.length);
+    assert.ok(rt.calls.every(call => call.headers.Referer === 'https://18mh.org/'));
+    assert.ok(rt.calls.every(call => call.headers['User-Agent'] === undefined));
+    assert.ok(rt.calls[2].url.includes(encodeURIComponent('测试 漫画')));
 });
 
 test('Zero explore requests run sequentially with newest-first sorting', async () => {
