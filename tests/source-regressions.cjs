@@ -8,6 +8,38 @@ const {test} = require('node:test');
 const root = path.resolve(__dirname, '..');
 const library = fs.readFileSync(path.join(root, '_venera_.js'), 'utf8');
 
+test('MH1234 reads current and saved legacy chapter links without crossing comic IDs', () => {
+    const {source} = loadSource('mh1234.js');
+    assert.equal(source._chapterId('/comic/56016/3969497.html', '56016'), '3969497');
+    assert.equal(source._chapterId('/comic/56016/3969497.html?from=list', '56016'), '3969497');
+    assert.equal(source._chapterId('/comic/99999/3969497.html', '56016'), null);
+    assert.equal(source._chapterId('/go/saved_reader-token', '56016'), 'saved_reader-token');
+    assert.equal(source._chapterId('https://other.example/go/token', '56016'), null);
+});
+
+test('MH1234 resolves the literal reader redirect and keeps its actual image Referer', async () => {
+    const rt = loadSource('mh1234.js', {request: async message => {
+        assert.equal(message.url, 'https://m.wmh1234.com/comic/56016/3969497.html');
+        assert.equal(message.headers.Referer, 'https://m.wmh1234.com/comic/56016.html');
+        return {status: 200, body: '<script>location.replace("https://reader.hqread.cc/r/live-reader-token");</script>'};
+    }});
+    assert.equal(await rt.source._chapterReaderUrl('56016', '3969497'), 'https://reader.hqread.cc/r/live-reader-token');
+    assert.equal(rt.source.comic.onImageLoad('https://image.example/page.webp', '56016', '3969497').headers.Referer,
+        'https://reader.hqread.cc/r/live-reader-token');
+    assert.equal(await rt.source._chapterReaderUrl('56016', 'saved-token'), 'https://reader.hqread.cc/r/saved-token');
+    assert.equal(rt.calls.length, 1);
+});
+
+test('MH1234 refuses missing or foreign redirects and malformed chapter identifiers', async () => {
+    for (const html of ['<html>No redirect</html>', '<script>location.replace("https://reader.hqread.cc.evil.example/r/token")</script>']) {
+        const {source} = loadSource('mh1234.js', {request: async () => ({status: 200, body: html})});
+        await assert.rejects(source._chapterReaderUrl('56016', '3969497'));
+    }
+    const {source} = loadSource('mh1234.js');
+    await assert.rejects(source._chapterReaderUrl('../56016', '3969497'));
+    await assert.rejects(source._chapterReaderUrl('56016', '../3969497'));
+});
+
 function loadSource(file, {settings = {}, settingsUnavailable = false, request, images = [], decoderRequest = false} = {}) {
     const calls = [], delays = [], data = new Map();
     let source, disposed = 0;

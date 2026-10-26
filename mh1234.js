@@ -3,7 +3,7 @@
 class MH1234 extends ComicSource {
     name = "漫画1234"
     key = "mh1234"
-    version = "2.0.0"
+    version = "2.0.1"
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/mh1234.js"
 
@@ -45,6 +45,33 @@ class MH1234 extends ComicSource {
     _comicId(href) {
         const match = String(href || "").match(/\/comic\/(\d+)\.html/i)
         return match ? match[1] : null
+    }
+
+    _readerUrls = new Map()
+
+    _chapterId(href, comicId) {
+        const value = String(href || "")
+        const modern = value.match(/^\/comic\/(\d+)\/(\d+)\.html(?:[?#].*)?$/)
+        if (modern) return modern[1] === String(comicId) ? modern[2] : null
+        const legacy = value.match(/^\/go\/([A-Za-z0-9_-]+)(?:[/?#]|$)/)
+        return legacy ? legacy[1] : null
+    }
+
+    async _chapterReaderUrl(comicId, epId) {
+        const token = String(epId || "").trim()
+        if (!token || !/^[A-Za-z0-9_-]+$/.test(token)) throw "无效的章节 ID"
+        let readerUrl = `https://reader.hqread.cc/r/${token}`
+        if (/^\d+$/.test(token)) {
+            if (!/^\d+$/.test(String(comicId))) throw "无效的漫画 ID"
+            const pageUrl = `${this.baseUrl}/comic/${comicId}/${token}.html`
+            const html = await this._get(pageUrl, `${this.baseUrl}/comic/${comicId}.html`)
+            // Parse the site's literal redirect; never evaluate page JavaScript.
+            const redirect = html.match(/location\.replace\(\s*"(https:\/\/reader\.hqread\.cc\/r\/[A-Za-z0-9_-]+)"\s*\)/)
+            if (!redirect) throw "章节跳转地址解析失败，站点页面结构可能已经变化"
+            readerUrl = redirect[1]
+        }
+        this._readerUrls.set(`${comicId}:${token}`, readerUrl)
+        return readerUrl
     }
 
     _imageUrl(image) {
@@ -302,9 +329,9 @@ class MH1234 extends ComicSource {
                 const introElement = document.querySelector("#mintIntroPanel div")
                 const chapters = new Map()
 
-                for (const chapter of document.querySelectorAll('[data-mint-chapters] a[href*="/go/"]')) {
-                    const match = String(chapter.attributes["href"] || "").match(/\/go\/([^/?#]+)/)
-                    if (match) chapters.set(match[1], chapter.text.trim() || match[1])
+                for (const chapter of document.querySelectorAll('[data-mint-chapters] a[href]')) {
+                    const chapterId = this._chapterId(chapter.attributes["href"], comicId[0])
+                    if (chapterId) chapters.set(chapterId, chapter.text.trim() || chapterId)
                 }
                 if (chapters.size === 0) throw "未找到章节列表，站点页面结构可能已经更新"
 
@@ -329,10 +356,7 @@ class MH1234 extends ComicSource {
         },
 
         loadEp: async (comicId, epId) => {
-            const token = String(epId || "").trim()
-            if (!token || !/^[A-Za-z0-9_-]+$/.test(token)) throw "无效的章节 ID"
-
-            const readerUrl = `https://reader.hqread.cc/r/${token}`
+            const readerUrl = await this._chapterReaderUrl(comicId, epId)
             const html = await this._get(readerUrl, `${this.baseUrl}/comic/${comicId}.html`)
             const document = new HtmlDocument(html)
             try {
@@ -358,7 +382,9 @@ class MH1234 extends ComicSource {
         onImageLoad: (url, comicId, epId) => {
             return {
                 url: this._absoluteUrl(url, "https://reader.hqread.cc"),
-                headers: {"Referer": `https://reader.hqread.cc/r/${String(epId || "")}`},
+                headers: {"Referer": this._readerUrls.get(`${comicId}:${String(epId || "").trim()}`) ||
+                    (/^\d+$/.test(String(epId || "")) ? "https://reader.hqread.cc/" :
+                        `https://reader.hqread.cc/r/${String(epId || "")}`)},
             }
         },
 
