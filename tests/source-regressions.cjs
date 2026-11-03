@@ -40,6 +40,52 @@ test('MH1234 refuses missing or foreign redirects and malformed chapter identifi
     await assert.rejects(source._chapterReaderUrl('56016', '../3969497'));
 });
 
+test('MH1234 identifies the official app-only chapter gate without treating unrelated pages as that gate', async () => {
+    const {source} = loadSource('mh1234.js', {request: async () => ({status: 200,
+        body: '<title>最新章节抢先看</title><a href="https://app.hqread.cc/boluomh.html">查看</a>',
+    })});
+    await assert.rejects(source._chapterReaderUrl('56016', '3969497'), error => String(error).includes('官方 APP 抢先阅读章节'));
+    assert.equal(source._readerUrls.size, 0);
+    const unknown = loadSource('mh1234.js', {request: async () => ({status: 200,
+        body: '<title>最新章节抢先看</title><a href="https://app.hqread.cc.evil.example/boluomh.html">查看</a>',
+    })});
+    await assert.rejects(unknown.source._chapterReaderUrl('56016', '3969497'), error => String(error).includes('站点页面结构'));
+});
+
+test('Baihehui reports an anonymous search login redirect instead of an empty result list', async () => {
+    const {source, calls} = loadSource('baihehui.js', {request: async () => ({status: 200,
+        body: '<title>登录 - 百合会</title><form action="/user/login"><input name="LoginForm[username]"></form>',
+    })});
+    await assert.rejects(source.search.load('a&b #中文', [], 2), error => String(error).includes('搜索需要登录'));
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.includes(encodeURIComponent('a&b #中文')));
+    assert.ok(calls[0].url.endsWith('&page=2'));
+    assert.equal(calls[0].headers, undefined);
+});
+
+for (const enabled of [false, true]) {
+    for (const method of ['networkGet', 'networkPost']) {
+        for (const rejects of [false, true]) {
+            test(`Copy device reset enabled=${enabled}, ${method}, rejects=${rejects} preserves account state`, async () => {
+                const rt = loadSource('copy_manga.js', {settings: {auto_clear_device_info: enabled}, request: async () => {
+                    if (rejects) throw new Error('network unavailable');
+                    return {status: 200, body: '{}'};
+                }});
+                const keys = ['_deviceinfo', '_device', '_pseudoid'];
+                for (const key of keys) rt.data.set(key, 'existing-device-value');
+                rt.data.set('token', 'existing-account-token');
+                const result = rt.source[method]('https://api.example/test', {}, '{}');
+                if (rejects) await assert.rejects(result, /network unavailable/);
+                else assert.equal((await result).status, 200);
+                assert.equal(rt.calls.length, 1);
+                assert.equal(rt.calls[0].http_method, method === 'networkGet' ? 'GET' : 'POST');
+                for (const key of keys) assert.equal(rt.data.has(key), !enabled);
+                assert.equal(rt.data.get('token'), 'existing-account-token');
+            });
+        }
+    }
+}
+
 function loadSource(file, {settings = {}, settingsUnavailable = false, request, images = [], decoderRequest = false} = {}) {
     const calls = [], delays = [], data = new Map();
     let source, disposed = 0;
@@ -51,6 +97,7 @@ function loadSource(file, {settings = {}, settingsUnavailable = false, request, 
             }
             case 'load_data': return data.get(message.data_key);
             case 'save_data': return data.set(message.data_key, message.data);
+            case 'delete_data': return data.delete(message.data_key);
             case 'delay': delays.push(message.time); return Promise.resolve();
             case 'http':
                 if (file === 'manwaba.js' && !decoderRequest && message.url.endsWith('/static/assets/js/base.js')) {

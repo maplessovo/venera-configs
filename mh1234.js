@@ -3,7 +3,7 @@
 class MH1234 extends ComicSource {
     name = "漫画1234"
     key = "mh1234"
-    version = "2.0.1"
+    version = "2.0.2"
     minAppVersion = "1.6.0"
     url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/mh1234.js"
 
@@ -67,6 +67,10 @@ class MH1234 extends ComicSource {
             const html = await this._get(pageUrl, `${this.baseUrl}/comic/${comicId}.html`)
             // Parse the site's literal redirect; never evaluate page JavaScript.
             const redirect = html.match(/location\.replace\(\s*"(https:\/\/reader\.hqread\.cc\/r\/[A-Za-z0-9_-]+)"\s*\)/)
+            if (!redirect && /<title>\s*最新章节抢先看\s*<\/title>/i.test(html)
+                && /https:\/\/app\.hqread\.cc\/boluomh\.html(?:["'?#\s]|$)/i.test(html)) {
+                throw "该章节为官方 APP 抢先阅读章节，请在官方 APP 查看，或选择其他公开章节"
+            }
             if (!redirect) throw "章节跳转地址解析失败，站点页面结构可能已经变化"
             readerUrl = redirect[1]
         }

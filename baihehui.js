@@ -8,12 +8,12 @@ class Baihehui extends ComicSource {
     // unique id of the source
     key = "baihehui"
 
-    version = "1.0.0"
+    version = "1.0.1"
 
     minAppVersion = "1.4.0"
 
     // update url
-    url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/baihehui.js"
+    url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/baihehui.js"
 
     settings = {
         domains: {
@@ -429,14 +429,15 @@ explore = [
          */
         load: async (keyword, options, page) => {
             let url = `https://www.yamibo.com/search/manga?SearchForm%5Bkeyword%5D=${encodeURIComponent(keyword)}&page=${page}`;
-    let res = await Network.get(url, {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0"
-        }
-    });
+    let res = await Network.get(url);
 
     if (res.status !== 200) {
         throw `Invalid status code: ${res.status}`;
+    }
+
+    // Anonymous searches redirect to the site's login form with HTTP 200.
+    if (/<input\b[^>]*\bname\s*=\s*["']LoginForm\[username\]["']/i.test(res.body)) {
+        throw "百合会搜索需要登录，请在漫画源设置中登录后重试";
     }
 
     let document = new HtmlDocument(res.body);
