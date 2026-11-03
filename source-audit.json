@@ -13,22 +13,25 @@
   "limitations": [
     "网络抽样不等于所有作品或章节均可用",
     "自建服务器及必须登录的功能没有使用用户凭据验证",
-    "未验证 Venera 手机界面；禁漫图片重排需要客户端确认",
+    "未验证 Venera 手机界面；Jump 图片重排已通过像素回归，但与禁漫一样尚未实机确认",
     "本机没有原生 CLI 编译工具，原生源校验交由仓库 CI 执行"
   ],
   "validation": {
     "javascriptSyntax": "passed",
-    "regressionTests": 49,
-    "copyMangaAutoClearEnabled": "live_sample_passed"
+    "regressionTests": 57,
+    "copyMangaAutoClearEnabled": "live_sample_passed",
+    "jumpPublicWebMode": "live_samples_and_pixel_transpose_test_passed",
+    "godaChapterImageHeaders": "live_image_200"
   },
   "summary": {
-    "sample_chain_passed": 22,
+    "sample_chain_passed": 23,
     "needs_login": 1,
     "image_retrieved_client_transform_needed": 1,
-    "access_denied": 3,
+    "access_denied": 2,
+    "public_web_sample_with_pixel_transform_tested": 1,
     "needs_user_server": 3,
     "public_chapters_passed_latest_app_only": 1,
-    "verification_required": 2,
+    "verification_required": 1,
     "network_failure": 2,
     "reader_changed_and_cdn_blocked": 1,
     "invalid_unindexed_source": 1
@@ -268,17 +271,35 @@
       "indexed": true,
       "version": "1.0.6",
       "status": "access_denied",
-      "note": "本次网络访问 API/网站返回 403",
+      "note": "正常浏览器与源请求均被站点拒绝；网页明确显示当前区域禁止访问，本轮没有修改网络或猜测替代域名",
       "sample": {}
     },
     {
       "file": "shonen_jump_plus.js",
       "name": "少年ジャンプ＋",
       "indexed": true,
-      "version": "1.1.1",
-      "status": "access_denied",
-      "note": "本次网络访问 API/网站返回 403",
-      "sample": {}
+      "version": "1.2.0",
+      "status": "public_web_sample_with_pixel_transform_tested",
+      "note": "官方公开网页模式：列表、完整章节分页、搜索及图片通过；4×4 图片重排通过像素回归测试，尚未手机实测",
+      "sample": {
+        "listCount": 94,
+        "chapterCount": 258,
+        "imageCount": 68,
+        "image": {
+          "http": 200,
+          "recognized": true
+        },
+        "additionalWork": {
+          "chapterCount": 183,
+          "imageCount": 71,
+          "imageHttp": 200
+        },
+        "pixelTransposeRegression": "passed"
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 1
+      }
     },
     {
       "file": "hitomi.js",
@@ -482,17 +503,17 @@
       "file": "goda.js",
       "name": "GoDa漫画",
       "indexed": true,
-      "version": "1.2.1",
-      "status": "verification_required",
-      "note": "Cloudflare/站点验证拦截",
+      "version": "1.2.2",
+      "status": "sample_chain_passed",
+      "note": "补齐章节图片 User-Agent 与 Referer 后，真实章节图片返回 200",
       "sample": {
         "listCount": 66,
         "chapterCount": 94,
         "imageCount": 58,
         "image": {
-          "http": 403,
-          "recognized": false,
-          "bytes": 5641
+          "http": 200,
+          "recognized": true,
+          "bytes": 135286
         }
       }
     },
@@ -684,5 +705,23 @@
       "note": "未收录；包含模拟运行时，不能作为原生源导入",
       "sample": {}
     }
-  ]
+  ],
+  "followup403": {
+    "date": "2026-11-03",
+    "restoredSources": [
+      "shonen_jump_plus.js",
+      "goda.js"
+    ],
+    "remaining": [
+      "ikmmh.js",
+      "comic_walker.js",
+      "jcomic.js",
+      "mh18.js"
+    ],
+    "notes": [
+      "Jump 默认读取官方公开网页，原应用接口仍可选；旧应用接口书架记录需要重新搜索添加或切回原接口",
+      "GoDa 图片配置继续使用原用户选择的域名，仅补齐正常浏览器请求头",
+      "jcomic 公开地址编码机制已核对，但正常浏览器请求头下的 CDN 请求仍返回 Cloudflare 403，因此没有发布未通过图片读取的改动"
+    ]
+  }
 }

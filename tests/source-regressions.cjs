@@ -63,6 +63,121 @@ test('Baihehui reports an anonymous search login redirect instead of an empty re
     assert.equal(calls[0].headers, undefined);
 });
 
+test('Jump public mode is the default and does not request app authentication or version discovery', async () => {
+    const {source, calls} = loadSource('shonen_jump_plus.js', {request: async () => { throw Error('unexpected network'); }});
+    assert.equal(source.publicWebMode, true);
+    await source.init();
+    assert.equal(calls.length, 0);
+    const app = loadSource('shonen_jump_plus.js', {settings: {access_mode: 'app'}});
+    assert.equal(app.source.publicWebMode, false);
+});
+
+test('Jump preserves legacy IDs and explains how to reopen old bookmarks without guessing a public ID', async () => {
+    const {source, calls} = loadSource('shonen_jump_plus.js', {request: async () => { throw Error('unexpected network'); }});
+    await assert.rejects(source.comic.loadInfo('123'), /此书架记录来自旧版源/);
+    await assert.rejects(source.comic.loadEp('123', '456'), /此章节来自旧版源/);
+    assert.equal(calls.length, 0);
+});
+
+test('Jump public chapter pagination collects all batches without purchasing or creating accounts', async () => {
+    const rt = loadSource('shonen_jump_plus.js', {request: async message => {
+        assert.equal(message.http_method, 'GET');
+        assert.equal(message.headers.Authorization, undefined);
+        if (message.url.endsWith('/episode/1')) return {status: 200, body: JSON.stringify({series: {id: '9', title: 'Example'}, title: 'First'})};
+        const offset = message.url.match(/offset=(\d+)/)?.[1];
+        const data = {0: [{readable_product_id: '3', title: 'Third'}, {readable_product_id: '2', title: 'Second'}],
+            2: [{readable_product_id: '1', title: 'First'}], 3: []}[offset];
+        assert.ok(data);
+        return {status: 200, body: JSON.stringify(data)};
+    }});
+    rt.source.publicProduct = JSON.parse;
+    rt.source.fetchBearerToken = () => { throw Error('must not authenticate'); };
+    const info = await rt.source.comic.loadInfo('web:1');
+    assert.deepEqual([...info.chapters.keys()], ['web:1', 'web:2', 'web:3']);
+    assert.equal(info.title, 'Example');
+    assert.equal(rt.calls.length, 4);
+});
+
+test('Jump refuses repeated public chapter pages instead of publishing a truncated list', async () => {
+    const {source} = loadSource('shonen_jump_plus.js', {request: async message => ({status: 200,
+        body: message.url.endsWith('/episode/1') ? JSON.stringify({series: {id: '9'}}) : JSON.stringify([{readable_product_id: '1'}]),
+    })});
+    source.publicProduct = JSON.parse;
+    await assert.rejects(source.comic.loadInfo('web:1'), /分页重复/);
+});
+
+test('Jump public reader returns only real pages and never rents a locked chapter', async () => {
+    let product = {pageStructure: {choJuGiga: 'baku', pages: [
+        {type: 'ad', src: 'https://ad.example/banner.jpg'},
+        {type: 'main', src: 'https://cdn.example/first.jpg?signature=test'},
+        {type: 'main', src: 'javascript:bad()'},
+    ]}};
+    const rt = loadSource('shonen_jump_plus.js', {request: async message => {
+        assert.equal(message.http_method, 'GET');
+        return {status: 200, body: JSON.stringify(product)};
+    }});
+    rt.source.publicProduct = JSON.parse;
+    const pages = await rt.source.comic.loadEp('web:1', 'web:2');
+    assert.deepEqual([...pages.images], ['https://cdn.example/first.jpg?signature=test#jump-baku']);
+    const config = rt.source.comic.onImageLoad(pages.images[0]);
+    assert.equal(config.url, 'https://cdn.example/first.jpg?signature=test');
+    assert.equal(config.headers['X-Giga-Page-Image-Auth'], undefined);
+    assert.equal(typeof config.modifyImage, 'string');
+    product = {isPublic: false, hasPurchased: false, pageStructure: null};
+    await assert.rejects(rt.source.comic.loadEp('web:1', 'web:2'), /未向当前网页用户公开/);
+    assert.equal(rt.calls.length, 2);
+});
+
+test('Jump validates web identifiers and reports 403 before attempting JSON parsing', async () => {
+    const rt = loadSource('shonen_jump_plus.js', {request: async () => ({status: 403, body: '<html>private diagnostic</html>'})});
+    assert.equal(rt.source.publicEpisodeId('https://shonenjumpplus.com/episode/123'), '123');
+    assert.equal(rt.source.publicEpisodeId('https://shonenjumpplus.com.evil.example/episode/123'), null);
+    await assert.rejects(rt.source.publicGet('https://evil.example/episode/123'), /无效/);
+    assert.equal(rt.calls.length, 0);
+    await assert.rejects(rt.source.fetchBearerToken(), error => error.message.includes('HTTP 403') && !error.message.includes('<html>'));
+    assert.equal(rt.calls.length, 1);
+});
+
+test('Jump image transpose preserves edge pixels and reverses a known 4 by 4 tile layout', () => {
+    class Pixels {
+        constructor(width, height) { this.width = width; this.height = height; this.pixels = new Uint32Array(width * height); }
+        fillImageRangeAt(x, y, image, srcX, srcY, width, height) {
+            for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+                this.pixels[(y + j) * this.width + x + i] = image.pixels[(srcY + j) * image.width + srcX + i];
+            }
+        }
+        fillImageAt(x, y, image) { this.fillImageRangeAt(x, y, image, 0, 0, image.width, image.height); }
+    }
+    const {source} = loadSource('shonen_jump_plus.js');
+    const code = source.publicImageConfig('https://cdn.example/page.jpg#jump-baku').modifyImage;
+    const transform = vm.runInNewContext(code, {Image: {empty: (w, h) => new Pixels(w, h)}});
+    const input = new Pixels(137, 170);
+    for (let i = 0; i < input.pixels.length; i++) input.pixels[i] = i;
+    const output = transform(input);
+    // Top-left source block indices, in destination row order.
+    const order = [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15];
+    for (let i = 0; i < 16; i++) {
+        const dst = Math.floor(i / 4) * 40 * input.width + (i % 4) * 32;
+        const src = Math.floor(order[i] / 4) * 40 * input.width + (order[i] % 4) * 32;
+        assert.equal(output.pixels[dst], input.pixels[src]);
+    }
+    for (let y = 0; y < input.height; y++) for (let x = 0; x < input.width; x++) {
+        if (x >= 128 || y >= 160) assert.equal(output.pixels[y * input.width + x], input.pixels[y * input.width + x]);
+    }
+    assert.deepEqual(transform(output).pixels, input.pixels);
+    const tiny = new Pixels(20, 20);
+    assert.equal(transform(tiny), tiny);
+});
+
+test('GoDa applies the same browser identity to chapter images and the API with a site Referer', () => {
+    const {source} = loadSource('goda.js', {settings: {domains: 'reader.example'}});
+    const config = source.comic.onImageLoad('https://cdn.example/chapter.webp');
+    assert.equal(config.url, 'https://cdn.example/chapter.webp');
+    assert.equal(config.headers.Referer, 'https://reader.example/');
+    assert.equal(config.headers['User-Agent'], source.headers['User-Agent']);
+    assert.equal(config.headers.headers, undefined);
+});
+
 for (const enabled of [false, true]) {
     for (const method of ['networkGet', 'networkPost']) {
         for (const rejects of [false, true]) {
@@ -98,6 +213,7 @@ function loadSource(file, {settings = {}, settingsUnavailable = false, request, 
             case 'load_data': return data.get(message.data_key);
             case 'save_data': return data.set(message.data_key, message.data);
             case 'delete_data': return data.delete(message.data_key);
+            case 'random': return message.type === 'int' ? Math.floor(message.min) : message.min;
             case 'delay': delays.push(message.time); return Promise.resolve();
             case 'http':
                 if (file === 'manwaba.js' && !decoderRequest && message.url.endsWith('/static/assets/js/base.js')) {

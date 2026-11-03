@@ -1,10 +1,156 @@
 class ShonenJumpPlus extends ComicSource {
   name = "少年ジャンプ＋";
   key = "shonen_jump_plus";
-  version = "1.1.1";
+  version = "1.2.0";
   minAppVersion = "1.2.1";
   url =
-    "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/shonen_jump_plus.js";
+    "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/shonen_jump_plus.js";
+
+  settings = {
+    access_mode: {
+      title: "阅读方式",
+      type: "select",
+      options: [
+        {value: "web", text: "官方公开网页"},
+        {value: "app", text: "原应用接口"},
+      ],
+      default: "web",
+    },
+  };
+
+  get publicWebMode() {
+    return this.loadSetting("access_mode") !== "app";
+  }
+
+  async publicGet(path) {
+    if (!/^\/(?:episode\/\d+(?:[/?#]|$)|api\/viewer\/pagination_readable_products\?|search(?:\?|$)|$)/.test(path)) {
+      throw new Error("无效的官方网页路径");
+    }
+    const response = await Network.get(`https://shonenjumpplus.com${path}`, {
+      "Referer": "https://shonenjumpplus.com/",
+      "Accept": "text/html,application/json",
+    });
+    if (response.status !== 200) {
+      throw new Error(`少年ジャンプ＋公开网页请求失败（HTTP ${response.status}）`);
+    }
+    return response.body;
+  }
+
+  publicEpisodeId(value) {
+    const match = String(value || "").match(/^(?:web:|(?:https:\/\/shonenjumpplus\.com)?\/episode\/)(\d+)(?:[/?#].*)?$/);
+    return match ? match[1] : null;
+  }
+
+  publicCards(html) {
+    const document = new HtmlDocument(html);
+    try {
+      const comics = [], seen = new Set();
+      for (const link of document.querySelectorAll('a[href*="/episode/"]')) {
+        const episodeId = this.publicEpisodeId(link.attributes.href);
+        const image = link.querySelector("img.daily-series-thumb-square") || link.querySelector("img");
+        const titleNode = link.querySelector(".daily-series-title, .series-list-title, .series-title, .search-series-title, h2, h3");
+        const title = (titleNode?.text || image?.attributes.alt || link.text || "").trim();
+        const cover = image?.attributes["data-src"] || image?.attributes.src || "";
+        if (!episodeId || !title || !cover || seen.has(episodeId)) continue;
+        seen.add(episodeId);
+        comics.push(new Comic({id: `web:${episodeId}`, title, cover: this.replaceCoverUrl(cover)}));
+      }
+      return comics;
+    } finally {
+      document.dispose();
+    }
+  }
+
+  publicProduct(html) {
+    const document = new HtmlDocument(html);
+    try {
+      const value = document.querySelector("#episode-json")?.attributes["data-value"];
+      if (!value) throw new Error("未找到官方公开阅读器数据");
+      const product = JSON.parse(value).readableProduct;
+      if (!product || !/^\d+$/.test(String(product.series?.id || ""))) {
+        throw new Error("官方公开阅读器数据不完整");
+      }
+      return product;
+    } finally {
+      document.dispose();
+    }
+  }
+
+  async publicInfo(id) {
+    const episodeId = this.publicEpisodeId(id);
+    if (!episodeId) throw new Error("无效的公开作品 ID");
+    const product = this.publicProduct(await this.publicGet(`/episode/${episodeId}`));
+    const chapters = new Map(), visited = new Set();
+    // This is the same public, paginated chapter list used by the official web viewer.
+    // It contains metadata only; locked pages are never purchased by this source path.
+    for (let offset = 0; ; ) {
+      if (offset >= 20000) throw new Error("公开章节列表超过安全上限，请稍后重试");
+      const items = JSON.parse(await this.publicGet(
+        `/api/viewer/pagination_readable_products?type=episode&aggregate_id=${product.series.id}&sort_order=desc&offset=${offset}`,
+      ));
+      if (!Array.isArray(items)) throw new Error("官方章节列表格式已变化");
+      if (!items.length) break;
+      let added = 0;
+      for (const item of items) {
+        const key = this.publicEpisodeId(item.viewer_uri) || (/^\d+$/.test(String(item.readable_product_id)) ? String(item.readable_product_id) : null);
+        if (!key || visited.has(key)) continue;
+        visited.add(key); added++;
+        chapters.set(`web:${key}`, String(item.title || key));
+      }
+      if (!added) throw new Error("官方章节分页重复，请稍后重试");
+      offset += items.length;
+    }
+    if (!chapters.has(`web:${episodeId}`)) chapters.set(`web:${episodeId}`, product.title || "当前章节");
+    return new ComicDetails({
+      title: product.series.title || product.title || "少年ジャンプ＋",
+      cover: this.replaceCoverUrl(product.series.thumbnailUri),
+      chapters: new Map([...chapters].reverse()),
+      url: `https://shonenjumpplus.com/episode/${episodeId}`,
+      description: "官方公开网页阅读。未公开或需要购买的章节不会自动购买；可在漫画源设置中选择原应用接口。",
+    });
+  }
+
+  async publicPages(id) {
+    const episodeId = this.publicEpisodeId(id);
+    if (!episodeId) throw new Error("无效的公开章节 ID");
+    const product = this.publicProduct(await this.publicGet(`/episode/${episodeId}`));
+    const structure = product.pageStructure;
+    if (!structure || !Array.isArray(structure.pages)) {
+      throw new Error("此章节未向当前网页用户公开，可能需要购买、登录或使用官方 APP");
+    }
+    const images = structure.pages.filter(page => page.type === "main" && typeof page.src === "string" && /^https:\/\//.test(page.src))
+      .map(page => structure.choJuGiga === "baku" ? `${page.src}#jump-baku` : page.src);
+    if (!images.length) throw new Error("此章节没有可公开读取的图片");
+    return {images};
+  }
+
+  publicImageConfig(url) {
+    const scrambled = url.endsWith("#jump-baku");
+    return {
+      url: scrambled ? url.slice(0, -10) : url,
+      headers: {"Referer": "https://shonenjumpplus.com/"},
+      // GigaViewer's public 'baku' image format transposes a 4x4 grid, aligned to 8 pixels.
+      // Format reference: keiyoushi/extensions-source, multisrc/gigaviewer/ImageInterceptor.kt.
+      modifyImage: scrambled ? `let modifyImage = image => {
+        const width = image.width, height = image.height;
+        const w = Math.floor(width / 32) * 8, h = Math.floor(height / 32) * 8;
+        if (!w || !h) return image;
+        const result = Image.empty(width, height);
+        result.fillImageAt(0, 0, image);
+        for (let n = 0; n < 16; n++) {
+          const x = n % 4, y = Math.floor(n / 4);
+          result.fillImageRangeAt(y * w, x * h, image, x * w, y * h, w, h);
+        }
+        return result;
+      }; modifyImage;` : null,
+    };
+  }
+
+  parseJsonResponse(response, stage) {
+    if (response.status !== 200) throw new Error(`少年ジャンプ＋${stage}请求失败（HTTP ${response.status}），可在漫画源设置切换为官方公开网页`);
+    try { return JSON.parse(response.body); }
+    catch (_) { throw new Error(`少年ジャンプ＋${stage}返回了非 JSON 页面，请使用官方公开网页或稍后重试`); }
+  }
 
   deviceId = this.generateDeviceId();
   bearerToken = null;
@@ -32,6 +178,7 @@ class ShonenJumpPlus extends ComicSource {
   }
 
   async init() {
+    if (this.publicWebMode) return;
     const url = "https://apps.apple.com/jp/app/id875750302";
 
     const resp = await Network.get(url);
@@ -48,6 +195,7 @@ class ShonenJumpPlus extends ComicSource {
       title: "少年ジャンプ＋",
       type: "singlePageWithMultiPart",
       load: async () => {
+        if (this.publicWebMode) return {"公开作品": this.publicCards(await this.publicGet("/"))};
         await this.ensureAuth();
 
         const response = await this.graphqlRequest("HomeCacheable", {});
@@ -115,6 +263,10 @@ class ShonenJumpPlus extends ComicSource {
 
   search = {
     load: async (keyword, _, page) => {
+      if (this.publicWebMode) {
+        const comics = this.publicCards(await this.publicGet(`/search?q=${encodeURIComponent(keyword)}`));
+        return {comics: (page || 1) === 1 ? comics : [], maxPage: 1};
+      }
       if (!this.bearerToken || Date.now() > this.tokenExpiry) {
         await this.fetchBearerToken();
       }
@@ -162,6 +314,8 @@ class ShonenJumpPlus extends ComicSource {
 
   comic = {
     loadInfo: async (id) => {
+      if (String(id).startsWith("web:")) return this.publicInfo(id);
+      if (this.publicWebMode) throw new Error("此书架记录来自旧版源，请在公开网页模式搜索同名作品重新加入，或在源设置切换原应用接口");
       await this.ensureAuth();
       const seriesData = await this.fetchSeriesDetail(id);
       const episodes = await this.fetchEpisodes(id);
@@ -203,6 +357,8 @@ class ShonenJumpPlus extends ComicSource {
     },
 
     loadEp: async (comicId, epId) => {
+      if (String(epId).startsWith("web:")) return this.publicPages(epId);
+      if (this.publicWebMode) throw new Error("此章节来自旧版源，请在公开网页模式搜索同名作品重新加入，或在源设置切换原应用接口");
       await this.ensureAuth();
       const episodeId = this.normalizeEpisodeId(epId);
       const episodeData = await this.fetchEpisodePages(episodeId);
@@ -216,6 +372,7 @@ class ShonenJumpPlus extends ComicSource {
     },
 
     onImageLoad: (url) => {
+      if (!url.includes("?token=")) return this.publicImageConfig(url);
       const [cleanUrl, token] = url.split("?token=");
       return {
         url: cleanUrl,
@@ -259,8 +416,7 @@ class ShonenJumpPlus extends ComicSource {
       JSON.stringify(payload),
     );
 
-    if (response.status !== 200) throw `Invalid status: ${response.status}`;
-    return JSON.parse(response.body);
+    return this.parseJsonResponse(response, "应用查询");
   }
 
   normalizeEpisodeId(epId) {
@@ -284,9 +440,8 @@ class ShonenJumpPlus extends ComicSource {
       this.headers,
       "",
     );
-    const { access_token, user_account_id } = JSON.parse(
-      response.body,
-    );
+    const { access_token, user_account_id } = this.parseJsonResponse(response, "应用认证");
+    if (typeof access_token !== "string" || !access_token) throw new Error("少年ジャンプ＋应用认证没有返回有效令牌");
     this.bearerToken = access_token;
     this.userAccountId = user_account_id;
     this.tokenExpiry = Date.now() + 3600000;
