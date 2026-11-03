@@ -1,0 +1,688 @@
+{
+  "date": "2026-11-03",
+  "timezone": "Asia/Hong_Kong",
+  "repository": "maplessovo/venera-configs",
+  "sourceFiles": 37,
+  "indexedSources": 36,
+  "scope": [
+    "静态语法、元数据及版本一致性",
+    "公开列表、详情、章节、首张图片抽样",
+    "可读源补充搜索抽样",
+    "没有执行收藏、评论、注册或用户登录操作"
+  ],
+  "limitations": [
+    "网络抽样不等于所有作品或章节均可用",
+    "自建服务器及必须登录的功能没有使用用户凭据验证",
+    "未验证 Venera 手机界面；禁漫图片重排需要客户端确认",
+    "本机没有原生 CLI 编译工具，原生源校验交由仓库 CI 执行"
+  ],
+  "validation": {
+    "javascriptSyntax": "passed",
+    "regressionTests": 49,
+    "copyMangaAutoClearEnabled": "live_sample_passed"
+  },
+  "summary": {
+    "sample_chain_passed": 22,
+    "needs_login": 1,
+    "image_retrieved_client_transform_needed": 1,
+    "access_denied": 3,
+    "needs_user_server": 3,
+    "public_chapters_passed_latest_app_only": 1,
+    "verification_required": 2,
+    "network_failure": 2,
+    "reader_changed_and_cdn_blocked": 1,
+    "invalid_unindexed_source": 1
+  },
+  "sources": [
+    {
+      "file": "copy_manga.js",
+      "name": "拷贝漫画",
+      "indexed": true,
+      "version": "1.4.4",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 51,
+        "chapterCount": 6,
+        "imageCount": 43,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 418850
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 12
+      }
+    },
+    {
+      "file": "copy_manga_multi_accounts.js",
+      "name": "拷贝漫画(多账号)",
+      "indexed": true,
+      "version": "1.4.2",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 51,
+        "chapterCount": 6,
+        "imageCount": 43,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 418850
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 12
+      }
+    },
+    {
+      "file": "komiic.js",
+      "name": "Komiic",
+      "indexed": true,
+      "version": "1.0.3",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 20,
+        "chapterCount": 43,
+        "imageCount": 15,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 208967
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 2
+      }
+    },
+    {
+      "file": "baozi.js",
+      "name": "包子漫画",
+      "indexed": true,
+      "version": "1.1.9",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 108,
+        "chapterCount": 287,
+        "imageCount": 50,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 67056
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 81
+      }
+    },
+    {
+      "file": "picacg.js",
+      "name": "Picacg",
+      "indexed": true,
+      "version": "1.0.6",
+      "status": "needs_login",
+      "note": "需用户登录，未提供凭据",
+      "sample": {}
+    },
+    {
+      "file": "nhentai.js",
+      "name": "nhentai",
+      "indexed": true,
+      "version": "1.1.0",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 30,
+        "chapterCount": 0,
+        "imageCount": 45,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 177860
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 23
+      }
+    },
+    {
+      "file": "wnacg.js",
+      "name": "紳士漫畫",
+      "indexed": true,
+      "version": "1.0.6",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 54,
+        "chapterCount": 3,
+        "imageCount": 25,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 416349
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 21
+      }
+    },
+    {
+      "file": "ehentai.js",
+      "name": "ehentai",
+      "indexed": true,
+      "version": "1.2.0",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 25,
+        "chapterCount": 0,
+        "imageCount": 30,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 57184
+        }
+      },
+      "search": {
+        "status": "unsupported_or_cursor_based"
+      }
+    },
+    {
+      "file": "zerobyw33.js",
+      "name": "zero搬运网",
+      "indexed": true,
+      "version": "1.0.3",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 72,
+        "chapterCount": 17,
+        "imageCount": 29,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 301828
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 1
+      }
+    },
+    {
+      "file": "jm.js",
+      "name": "禁漫天堂",
+      "indexed": true,
+      "version": "1.4.1",
+      "status": "image_retrieved_client_transform_needed",
+      "note": "已取得图片；客户端图片重排尚未验证",
+      "sample": {
+        "listCount": 180,
+        "chapterCount": 283,
+        "imageCount": 35,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 87472
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 1
+      }
+    },
+    {
+      "file": "manga_dex.js",
+      "name": "MangaDex",
+      "indexed": true,
+      "version": "1.2.0",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 60,
+        "chapterCount": 20,
+        "imageCount": 17,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 1801748
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 20
+      }
+    },
+    {
+      "file": "ikmmh.js",
+      "name": "爱看漫",
+      "indexed": true,
+      "version": "1.0.6",
+      "status": "access_denied",
+      "note": "本次网络访问 API/网站返回 403",
+      "sample": {}
+    },
+    {
+      "file": "shonen_jump_plus.js",
+      "name": "少年ジャンプ＋",
+      "indexed": true,
+      "version": "1.1.1",
+      "status": "access_denied",
+      "note": "本次网络访问 API/网站返回 403",
+      "sample": {}
+    },
+    {
+      "file": "hitomi.js",
+      "name": "hitomi.la",
+      "indexed": true,
+      "version": "1.1.2",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 25,
+        "chapterCount": 0,
+        "imageCount": 53,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 198232
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 25
+      }
+    },
+    {
+      "file": "comick.js",
+      "name": "comick",
+      "indexed": true,
+      "version": "1.2.0",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 102,
+        "chapterCount": 126,
+        "imageCount": 18,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 261474
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 50
+      }
+    },
+    {
+      "file": "ykmh.js",
+      "name": "优酷漫画",
+      "indexed": true,
+      "version": "1.0.1",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 25,
+        "chapterCount": 178,
+        "imageCount": 21,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 158980
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 29
+      }
+    },
+    {
+      "file": "zaimanhua.js",
+      "name": "再漫画",
+      "indexed": true,
+      "version": "1.0.2",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 20,
+        "chapterCount": 35,
+        "imageCount": 51,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 185899
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 20
+      }
+    },
+    {
+      "file": "manhuagui.js",
+      "name": "漫画柜",
+      "indexed": true,
+      "version": "1.2.1",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 78,
+        "chapterCount": 108,
+        "imageCount": 55,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 143844
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 1
+      }
+    },
+    {
+      "file": "manwaba.js",
+      "name": "漫蛙吧",
+      "indexed": true,
+      "version": "1.0.6",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 24,
+        "chapterCount": 30,
+        "imageCount": 60,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 213528
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 20
+      }
+    },
+    {
+      "file": "lanraragi.js",
+      "name": "Lanraragi",
+      "indexed": true,
+      "version": "1.2.0",
+      "status": "needs_user_server",
+      "note": "需配置用户自建服务器，未验证私有服务",
+      "sample": {}
+    },
+    {
+      "file": "komga.js",
+      "name": "Komga",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "needs_user_server",
+      "note": "需配置用户自建服务器，未验证私有服务",
+      "sample": {}
+    },
+    {
+      "file": "comic_walker.js",
+      "name": "カドコミ",
+      "indexed": true,
+      "version": "1.0.2",
+      "status": "access_denied",
+      "note": "本次网络访问 API/网站返回 403",
+      "sample": {}
+    },
+    {
+      "file": "mh1234.js",
+      "name": "漫画1234",
+      "indexed": true,
+      "version": "2.0.2",
+      "status": "public_chapters_passed_latest_app_only",
+      "note": "公开章节及图片通过；最新抢先章节限官方 APP",
+      "sample": {
+        "listCount": 62,
+        "chapterCount": 97,
+        "publicChapter": {
+          "imageCount": 105,
+          "imageHttp": 200,
+          "recognized": true
+        }
+      }
+    },
+    {
+      "file": "ccc.js",
+      "name": "CCC追漫台",
+      "indexed": true,
+      "version": "1.0.1",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 92,
+        "chapterCount": 14,
+        "imageCount": 54,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 89743
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 5
+      }
+    },
+    {
+      "file": "goda.js",
+      "name": "GoDa漫画",
+      "indexed": true,
+      "version": "1.2.1",
+      "status": "verification_required",
+      "note": "Cloudflare/站点验证拦截",
+      "sample": {
+        "listCount": 66,
+        "chapterCount": 94,
+        "imageCount": 58,
+        "image": {
+          "http": 403,
+          "recognized": false,
+          "bytes": 5641
+        }
+      }
+    },
+    {
+      "file": "mh18.js",
+      "name": "18漫画",
+      "indexed": true,
+      "version": "1.0.1",
+      "status": "verification_required",
+      "note": "Cloudflare/站点验证拦截",
+      "sample": {}
+    },
+    {
+      "file": "mxs.js",
+      "name": "漫小肆",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 34,
+        "chapterCount": 40,
+        "imageCount": 340,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 49107
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 20
+      }
+    },
+    {
+      "file": "manhuaren.js",
+      "name": "漫画人",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "network_failure",
+      "note": "本次网络连接未成功；没有发布未经验证的新域名",
+      "sample": {}
+    },
+    {
+      "file": "hcomic.js",
+      "name": "H-Comic",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 10,
+        "chapterCount": 1,
+        "imageCount": 58,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 295642
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 7
+      }
+    },
+    {
+      "file": "jcomic.js",
+      "name": "jcomic.net",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "reader_changed_and_cdn_blocked",
+      "note": "阅读器地址编码已变化；图片 CDN 同时被 Cloudflare 403 拦截",
+      "sample": {
+        "listCount": 30,
+        "chapterCount": 1,
+        "imageCount": 456
+      }
+    },
+    {
+      "file": "hot_manga.js",
+      "name": "热辣漫画",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 30,
+        "chapterCount": 1,
+        "imageCount": 5,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 297582
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 20
+      }
+    },
+    {
+      "file": "kavita.js",
+      "name": "Kavita",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "needs_user_server",
+      "note": "需配置用户自建服务器，未验证私有服务",
+      "sample": {}
+    },
+    {
+      "file": "happy.js",
+      "name": "嗨皮漫画",
+      "indexed": true,
+      "version": "1.0.0",
+      "status": "network_failure",
+      "note": "TLS 连接失败；没有发布未经验证的新域名",
+      "sample": {}
+    },
+    {
+      "file": "mycomic.js",
+      "name": "MYCOMIC",
+      "indexed": true,
+      "version": "1.1.1",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 30,
+        "chapterCount": 16,
+        "imageCount": 28,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 190269
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 30
+      }
+    },
+    {
+      "file": "cosplaytele.js",
+      "name": "CosplayTele",
+      "indexed": true,
+      "version": "1.0.4",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过",
+      "sample": {
+        "listCount": 12,
+        "chapterCount": 1,
+        "imageCount": 99,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 225150
+        }
+      },
+      "search": {
+        "status": "results_returned",
+        "count": 12
+      }
+    },
+    {
+      "file": "baihehui.js",
+      "name": "百合会",
+      "indexed": true,
+      "version": "1.0.1",
+      "status": "sample_chain_passed",
+      "note": "列表、详情、章节及图片抽样通过；站点要求登录后搜索，匿名访问已有明确提示",
+      "sample": {
+        "listCount": 19,
+        "chapterCount": 88,
+        "imageCount": 19,
+        "image": {
+          "http": 200,
+          "recognized": true,
+          "bytes": 142764
+        }
+      },
+      "search": {
+        "status": "login_required"
+      }
+    },
+    {
+      "file": "rouman.js",
+      "name": "rouman.js",
+      "indexed": false,
+      "status": "invalid_unindexed_source",
+      "note": "未收录；包含模拟运行时，不能作为原生源导入",
+      "sample": {}
+    }
+  ]
+}
