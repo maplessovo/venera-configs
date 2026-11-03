@@ -116,12 +116,12 @@ class Goda extends ComicSource {
   // 源唯一标识
   key = "goda"
 
-  version = "1.2.1"
+  version = "1.2.2"
 
   minAppVersion = "1.4.0"
 
   // 更新地址
-  url = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/goda.js"
+  url = "https://cdn.jsdelivr.net/gh/maplessovo/venera-configs@main/goda.js"
 
   settings = {
     domains: {
@@ -506,6 +506,11 @@ class Goda extends ComicSource {
       }
       return { images };
     },
+
+    onImageLoad: (url) => ({
+      url,
+      headers: {...this.headers, "Referer": `${this.baseUrl}/`},
+    }),
 
     // 是否启用标签翻译
     enableTagsTranslate: false,
