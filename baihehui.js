@@ -8,7 +8,7 @@ class Baihehui extends ComicSource {
     // unique id of the source
     key = "baihehui"
 
-    version = "1.0.1"
+    version = "1.0.2"
 
     minAppVersion = "1.4.0"
 
@@ -621,9 +621,7 @@ explore = [
         loadEp: async (comicId, epId) => {
             let baseUrl = `https://www.yamibo.com/manga/view-chapter?id=${epId}`;
     let res = await Network.get(`${baseUrl}&page=1`, {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0"
-        }
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0"
     });
 
     if (res.status !== 200) {
@@ -642,9 +640,7 @@ explore = [
     for (let page = 1; page <= maxPage; page++) {
         let pageUrl = `${baseUrl}&page=${page}`;
         let pageRes = await Network.get(pageUrl, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0"
-            }
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0"
         });
 
         if (pageRes.status !== 200) {

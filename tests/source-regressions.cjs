@@ -63,6 +63,29 @@ test('Baihehui reports an anonymous search login redirect instead of an empty re
     assert.equal(calls[0].headers, undefined);
 });
 
+test('Baihehui chapter pagination sends native flat headers and refuses a failed later page', async () => {
+    for (const failSecond of [false, true]) {
+        let currentPage;
+        const rt = loadSource('baihehui.js', {request: async message => {
+            assert.equal(message.http_method, 'GET');
+            assert.equal(message.headers.headers, undefined);
+            assert.match(message.headers['User-Agent'], /^Mozilla/);
+            assert.ok(Object.values(message.headers).every(value => typeof value === 'string'));
+            currentPage = Number(new URL(message.url).searchParams.get('page'));
+            return {status: failSecond && currentPage === 2 ? 503 : 200, body: 'chapter'};
+        }, htmlBridge: message => {
+            if (message.function === 'parse' || message.function === 'dispose') return;
+            if (message.function === 'querySelector') return message.query === 'li.last > a' ? 1 : 2;
+            if (message.function === 'getAttributes') return message.key === 1
+                ? {'data-page': '1'} : {src: 'https://img.example/' + currentPage + '.jpg'};
+            throw Error('Unexpected chapter DOM call: ' + message.function);
+        }});
+        if (failSecond) await assert.rejects(rt.source.comic.loadEp('1', '2'), error => String(error).includes('503'));
+        else assert.deepEqual([...(await rt.source.comic.loadEp('1', '2')).images], ['https://img.example/1.jpg', 'https://img.example/2.jpg']);
+        assert.equal(rt.calls.length, 3);
+    }
+});
+
 test('Jump public mode is the default and does not request app authentication or version discovery', async () => {
     const {source, calls} = loadSource('shonen_jump_plus.js', {request: async () => { throw Error('unexpected network'); }});
     assert.equal(source.publicWebMode, true);
@@ -201,7 +224,7 @@ for (const enabled of [false, true]) {
     }
 }
 
-function loadSource(file, {settings = {}, settingsUnavailable = false, request, images = [], decoderRequest = false} = {}) {
+function loadSource(file, {settings = {}, settingsUnavailable = false, request, images = [], decoderRequest = false, htmlBridge} = {}) {
     const calls = [], delays = [], data = new Map();
     let source, disposed = 0;
     function sendMessage(message) {
@@ -233,6 +256,7 @@ function loadSource(file, {settings = {}, settingsUnavailable = false, request, 
                 throw new Error(`Unexpected conversion: ${message.type}`);
             }
             case 'html': {
+                if (htmlBridge) return htmlBridge(message);
                 if (message.function === 'parse') return;
                 if (message.function === 'dispose') { disposed++; return; }
                 if (message.function === 'querySelectorAll') return images.map((_, index) => index);
